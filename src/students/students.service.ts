@@ -293,6 +293,7 @@ export class StudentsService {
     const arms = await this.prisma.classArm.findMany({
       where: { classTeacherId: actor.id, sessionId: session.id },
       include: {
+        registers: { where: { date: today() }, select: { id: true } },
         placements: {
           include: {
             student: {
@@ -308,7 +309,7 @@ export class StudentsService {
     return {
       session: session.name,
       classes: arms.map((a) => ({
-        id: a.id, name: className(a.level, a.arm), capacity: a.capacity,
+        id: a.id, name: className(a.level, a.arm), capacity: a.capacity, registerTakenToday: a.registers.length > 0,
         students: a.placements
           .map((p) => ({
             ...studentSummary(p.student),

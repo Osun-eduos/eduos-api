@@ -51,26 +51,28 @@ model School {
 }
 
 model User {
-  id                 String            @id @default(uuid()) @db.Uuid
+  id                 String               @id @default(uuid()) @db.Uuid
   fullName           String
-  email              String?           @unique
-  phone              String?           @unique
+  email              String?              @unique
+  phone              String?              @unique
   role               Role
-  schoolId           String?           @db.Uuid
-  school             School?           @relation(fields: [schoolId], references: [id])
+  schoolId           String?              @db.Uuid
+  school             School?              @relation(fields: [schoolId], references: [id])
   passwordHash       String
-  mustChangePassword Boolean           @default(true)
-  isActive           Boolean           @default(true)
-  failedLoginCount   Int               @default(0)
+  mustChangePassword Boolean              @default(true)
+  isActive           Boolean              @default(true)
+  failedLoginCount   Int                  @default(0)
   lockedUntil        DateTime?
   lastLoginAt        DateTime?
   passwordChangedAt  DateTime?
-  createdById        String?           @db.Uuid
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdById        String?              @db.Uuid
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
   refreshTokens      RefreshToken[]
   classesTaught      ClassArm[]
   children           StudentGuardian[]
+  registersTaken     AttendanceRegister[] @relation("RegisterTakenBy")
+  registersUpdated   AttendanceRegister[] @relation("RegisterUpdatedBy")
 
   @@index([role])
   @@index([schoolId])
@@ -157,18 +159,19 @@ model AcademicSession {
 
 /// A class arm in a school for one session, e.g. JSS 2A in 2025/2026.
 model ClassArm {
-  id             String           @id @default(uuid()) @db.Uuid
-  schoolId       String           @db.Uuid
-  school         School           @relation(fields: [schoolId], references: [id])
-  sessionId      String           @db.Uuid
-  session        AcademicSession  @relation(fields: [sessionId], references: [id])
+  id             String               @id @default(uuid()) @db.Uuid
+  schoolId       String               @db.Uuid
+  school         School               @relation(fields: [schoolId], references: [id])
+  sessionId      String               @db.Uuid
+  session        AcademicSession      @relation(fields: [sessionId], references: [id])
   level          ClassLevel
   arm            String
-  capacity       Int              @default(40)
-  classTeacherId String?          @db.Uuid
-  classTeacher   User?            @relation(fields: [classTeacherId], references: [id])
-  createdAt      DateTime         @default(now())
+  capacity       Int                  @default(40)
+  classTeacherId String?              @db.Uuid
+  classTeacher   User?                @relation(fields: [classTeacherId], references: [id])
+  createdAt      DateTime             @default(now())
   placements     ClassPlacement[]
+  registers      AttendanceRegister[]
 
   @@unique([schoolId, sessionId, level, arm])
   @@index([classTeacherId])
@@ -195,6 +198,7 @@ model Student {
   placements      ClassPlacement[]
   guardians       StudentGuardian[]
   transfers       Transfer[]
+  attendance      AttendanceMark[]
 
   @@index([currentSchoolId])
   @@index([surname, firstName, dateOfBirth])
@@ -271,4 +275,42 @@ model Transfer {
 model Counter {
   key   String @id
   value Int    @default(0)
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  EXCUSED
+}
+
+/// One class's register for one school day.
+model AttendanceRegister {
+  id          String           @id @default(uuid()) @db.Uuid
+  classArmId  String           @db.Uuid
+  classArm    ClassArm         @relation(fields: [classArmId], references: [id])
+  date        DateTime         @db.Date
+  takenById   String           @db.Uuid
+  takenBy     User             @relation("RegisterTakenBy", fields: [takenById], references: [id])
+  takenAt     DateTime         @default(now())
+  updatedById String?          @db.Uuid
+  updatedBy   User?            @relation("RegisterUpdatedBy", fields: [updatedById], references: [id])
+  updatedAt   DateTime         @updatedAt
+  marks       AttendanceMark[]
+
+  @@unique([classArmId, date])
+  @@index([date])
+}
+
+model AttendanceMark {
+  id         String             @id @default(uuid()) @db.Uuid
+  registerId String             @db.Uuid
+  register   AttendanceRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  studentId  String             @db.Uuid
+  student    Student            @relation(fields: [studentId], references: [id])
+  status     AttendanceStatus
+  note       String?
+
+  @@unique([registerId, studentId])
+  @@index([studentId])
 }

@@ -93,6 +93,9 @@ export class ClassesService {
   async remove(actor: AuthUser, id: string, ip: string | null) {
     const c = await this.ownClass(actor, id);
     if (c._count.placements > 0) throw new BadRequestException('Move the students out of this class before removing it.');
+    if (await this.prisma.attendanceRegister.count({ where: { classArmId: id } })) {
+      throw new BadRequestException('This class has attendance records, so it cannot be removed.');
+    }
     await this.prisma.classArm.delete({ where: { id } });
     await this.audit.record({ actorId: actor.id, action: 'class.removed', targetType: 'class', targetId: id, schoolId: c.schoolId, meta: { name: className(c.level, c.arm) }, ip });
   }

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0] - 2026-11-24
+
+### Added
+- Daily attendance registers per class (present, late, absent, excused, with notes), with edit windows for class teachers and corrections by school administrators.
+- School day overview, class summaries and per-student attendance; attendance counts on `GET /stats` and `registerTakenToday` on `GET /my/classes`.
+- End-to-end tests for attendance.
+
+### Changed
+- "Today" is now the date in Nigeria (UTC+1) rather than UTC.
+- Classes with attendance records cannot be removed.
+
 ## [0.2.0] - 2026-11-24
 
 ### Added

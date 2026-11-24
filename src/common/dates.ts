@@ -8,8 +8,11 @@ export function parseDate(value: string, label: string): Date {
   return d;
 }
 
+/** Today's calendar date in Nigeria (West Africa Time, UTC+1, no daylight saving). */
 export function today(): Date {
-  return new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+  return new Date(new Date(Date.now() + 3_600_000).toISOString().slice(0, 10) + 'T00:00:00Z');
 }
+
+export const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
 
 export const isoDate = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);

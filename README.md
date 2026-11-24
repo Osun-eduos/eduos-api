@@ -4,7 +4,15 @@
 
 Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source education management and intelligence system for Osun State. The web app is [eduos-web](https://github.com/Osun-eduos/eduos-web).
 
-## Status: milestone 2, students and classes
+## Status: milestone 3, attendance
+
+**Milestone 3: attendance**
+
+- A daily register per class: each student is marked present, late, absent or excused, with an optional note. Every student on the class roll must be marked; students admitted after that day are left out.
+- Class teachers take and correct registers for the last 7 days; school administrators can correct any day in the current session. Weekends, future dates and dates outside the session are refused.
+- Each change records who took or corrected the register, and goes in the activity log.
+- School day overview (which classes have taken the register, with counts), class summaries and each student's attendance across classes and schools. Attendance rate counts days present or late.
+- Parents see their own child's attendance. Home screen counts for schools and the Ministry.
 
 **Milestone 2: students and classes**
 
@@ -25,7 +33,7 @@ Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source 
 - Accounts are issued down the chain with temporary passwords; the user must set their own at first sign-in.
 - Activity log of sign-ins and account changes.
 
-Next milestones: attendance, assessment and results, then the sync service for the Android and iOS apps. See the [roadmap](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/roadmap.md).
+Next milestones: assessment and results, then the sync service for the Android and iOS apps. See the [roadmap](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/roadmap.md).
 
 ## Stack
 
@@ -81,6 +89,8 @@ They cover sign-in by email and phone, the forced password change, who may creat
 | Request, accept, decline, cancel transfers | | | ✓ own school | | |
 | View students | ✓ all | ✓ all | own school | own class | own children |
 | View transfers | ✓ all | ✓ all | in and out of own school | | |
+| Take and correct registers | | | ✓ own school, any day this session | ✓ own class, last 7 days | |
+| View attendance | ✓ all | ✓ all | own school | own class | own children |
 
 ## API
 
@@ -113,6 +123,11 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `GET /transfers`, `POST /transfers` | `{ studentId, toSchoolId, reason }` |
 | `POST /transfers/:id/accept`, `/reject`, `/cancel` | Receiving school accepts `{ classArmId?, admittedOn? }` or rejects `{ note? }`; sending school cancels |
 | `GET /my/classes`, `GET /my/children` | Teacher's classes with students; parent's children |
+| `GET /attendance/register?classId&date` | A class's register for a day, with `editable` and `lockedReason` |
+| `PUT /attendance/register` | `{ classId, date, marks: [{ studentId, status, note? }] }`; status is `PRESENT`, `LATE`, `ABSENT` or `EXCUSED` |
+| `GET /attendance/day?date&schoolId` | Which classes have taken the register on a day, with counts |
+| `GET /attendance/class?classId&from&to` | Per-student and per-day totals for a class (default: the session so far) |
+| `GET /attendance/students/:id?from&to` | One student's attendance and rate |
 | `GET /schools/directory` | Every active school (for choosing a transfer destination) |
 | `GET /stats` | Counts for the home screen |
 | `GET /audit` | Activity log |

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AttendanceModule } from './attendance/attendance.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/jwt-auth.guard';
@@ -38,6 +39,7 @@ import { UsersModule } from './users/users.module';
     ClassesModule,
     StudentsModule,
     TransfersModule,
+    AttendanceModule,
   ],
   controllers: [HealthController, StatsController, SessionsController],
   providers: [

@@ -3,11 +3,15 @@ import { Role } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser } from '../common/decorators';
 import { MINISTRY_ROLES } from '../common/roles';
+import { AttendanceService } from '../attendance/attendance.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('stats')
 export class StatsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly attendance: AttendanceService,
+  ) {}
 
   /** Account and school counts for the signed-in user's home screen. */
   @Get()
@@ -28,6 +32,7 @@ export class StatsController {
     ]);
     const counts = Object.fromEntries(Object.values(Role).map((r) => [r, 0])) as Record<Role, number>;
     byRole.forEach((c) => (counts[c.role] = c._count));
-    return { accountsByRole: counts, schools, awaitingFirstSignIn: pending, students, unplaced, classes, session: session?.name ?? null, pendingTransfersIn };
+    const attendanceToday = me.role === Role.SCHOOL_ADMIN || MINISTRY_ROLES.includes(me.role) ? await this.attendance.todayStats(me) : null;
+    return { attendanceToday, accountsByRole: counts, schools, awaitingFirstSignIn: pending, students, unplaced, classes, session: session?.name ?? null, pendingTransfersIn };
   }
 }
