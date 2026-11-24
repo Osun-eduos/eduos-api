@@ -34,6 +34,10 @@ export class SchoolsService {
     });
   }
 
+  directory() {
+    return this.prisma.school.findMany({ where: { isActive: true }, select: { id: true, name: true, code: true, lga: true }, orderBy: [{ lga: 'asc' }, { name: 'asc' }] });
+  }
+
   async list(actor: AuthUser, lga?: string, q?: string) {
     if (!MINISTRY_ROLES.includes(actor.role)) throw new ForbiddenException('You do not have access to this.');
     const schools = await this.prisma.school.findMany({
@@ -42,9 +46,9 @@ export class SchoolsService {
         ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q.toUpperCase() } }] } : {}),
       },
       orderBy: [{ lga: 'asc' }, { name: 'asc' }],
-      include: { _count: { select: { users: true } } },
+      include: { _count: { select: { users: true, students: true } } },
     });
-    return schools.map(({ _count, ...s }) => ({ ...s, accounts: _count.users }));
+    return schools.map(({ _count, ...s }) => ({ ...s, accounts: _count.users, students: _count.students }));
   }
 
   async get(actor: AuthUser, id: string) {
@@ -52,7 +56,8 @@ export class SchoolsService {
     const school = await this.prisma.school.findUnique({ where: { id } });
     if (!school) throw new NotFoundException('School not found.');
     const counts = await this.prisma.user.groupBy({ by: ['role'], where: { schoolId: id }, _count: true });
-    return { ...school, accountsByRole: Object.fromEntries(counts.map((c) => [c.role, c._count])) };
+    const students = await this.prisma.student.count({ where: { currentSchoolId: id, status: 'ACTIVE' } });
+    return { ...school, students, accountsByRole: Object.fromEntries(counts.map((c) => [c.role, c._count])) };
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateSchoolDto, ip: string | null) {

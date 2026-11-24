@@ -16,6 +16,13 @@ export class SchoolsController {
     return LGA_NAMES;
   }
 
+  /** Active schools, for choosing where to transfer a student. */
+  @Get('directory')
+  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN)
+  directory() {
+    return this.schools.directory();
+  }
+
   @Get()
   @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER)
   list(@CurrentUser() me: AuthUser, @Query('lga') lga?: string, @Query('q') q?: string) {

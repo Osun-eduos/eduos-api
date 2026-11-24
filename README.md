@@ -4,7 +4,20 @@
 
 Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source education management and intelligence system for Osun State. The web app is [eduos-web](https://github.com/Osun-eduos/eduos-web).
 
-## Status: milestone 1, accounts and sign-in
+## Status: milestone 2, students and classes
+
+**Milestone 2: students and classes**
+
+- Academic sessions (`2026/2027`) opened by the Ministry; one is current at a time.
+- Classes (`JSS 2A`) per school and session, limited to the levels the school teaches, with a capacity and a class teacher.
+- Student enrolment with a state-wide **learner ID** (`OSN-26-000001`) that stays with the student for life, and a per-school admission number (`2026/0001`). Possible duplicates (same name and date of birth anywhere in the state) are flagged before enrolment.
+- Parents and guardians linked to students, using an existing parent account or creating one with a temporary password.
+- Class placement and moves, with capacity checks and class history.
+- Transfers between Osun schools: the sending school requests, the receiving school accepts (with a new admission number and optional class) or declines. The record, learner ID and history move with the student, and a parent whose only children have moved follows them to the new school.
+- Withdrawal for students leaving the state system; the record is kept.
+- Teachers see the class they teach; parents see their own children.
+
+**Milestone 1: accounts and sign-in**
 
 - Accounts for five user types: Ministry administrator, Ministry officer, school administrator, teacher and parent.
 - Sign-in with an email address or a Nigerian phone number (`0803…`, `+234803…` and `234803…` all work).
@@ -12,7 +25,7 @@ Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source 
 - Accounts are issued down the chain with temporary passwords; the user must set their own at first sign-in.
 - Activity log of sign-ins and account changes.
 
-Next milestones: students and classes, attendance, assessment and results, then the sync service for the Android and iOS apps. See the [roadmap](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/roadmap.md).
+Next milestones: attendance, assessment and results, then the sync service for the Android and iOS apps. See the [roadmap](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/roadmap.md).
 
 ## Stack
 
@@ -62,6 +75,12 @@ They cover sign-in by email and phone, the forced password change, who may creat
 | View accounts | ✓ all | ✓ all | own school | | |
 | View activity log | ✓ all | | own school | | |
 | Sign in, change own password | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Open and switch academic sessions | ✓ | | | | |
+| Create classes, assign class teachers | | | ✓ own school | | |
+| Enrol, edit, place, withdraw students; link parents | | | ✓ own school | | |
+| Request, accept, decline, cancel transfers | | | ✓ own school | | |
+| View students | ✓ all | ✓ all | own school | own class | own children |
+| View transfers | ✓ all | ✓ all | in and out of own school | | |
 
 ## API
 
@@ -81,6 +100,20 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `GET /schools`, `GET /schools/:id`, `GET /schools/lgas` | Schools and the list of LGAs |
 | `POST /schools` | Register a school, optionally with its administrator (`admin: { fullName, email?, phone? }`) |
 | `PATCH /schools/:id` | Update name, address or `isActive` |
+| `GET /sessions`, `GET /sessions/current` | Academic sessions |
+| `POST /sessions`, `POST /sessions/:id/make-current` | Open a session `{ name, startDate, endDate }`; switch the current one |
+| `GET /classes`, `GET /classes/levels` | Classes for a school and session; the levels a school may teach |
+| `POST /classes`, `PATCH /classes/:id`, `DELETE /classes/:id` | `{ level, arm, capacity?, classTeacherId? }`; only empty classes can be deleted |
+| `GET /students` | Filters `q`, `schoolId`, `classId`, `status`, `unplaced` |
+| `POST /students` | Enrol → `{ student, parent }` (parent has a temporary password if newly created); `409 POSSIBLE_DUPLICATE` unless `confirmDuplicate` |
+| `GET /students/:id`, `PATCH /students/:id` | Full record with guardians, schools attended, class history and transfers |
+| `POST /students/:id/placement` | `{ classArmId }` or `null` to remove from class |
+| `POST /students/:id/guardians`, `DELETE /students/:id/guardians/:parentId` | Link or unlink a parent |
+| `POST /students/:id/withdraw` | `{ reason }` |
+| `GET /transfers`, `POST /transfers` | `{ studentId, toSchoolId, reason }` |
+| `POST /transfers/:id/accept`, `/reject`, `/cancel` | Receiving school accepts `{ classArmId?, admittedOn? }` or rejects `{ note? }`; sending school cancels |
+| `GET /my/classes`, `GET /my/children` | Teacher's classes with students; parent's children |
+| `GET /schools/directory` | Every active school (for choosing a transfer destination) |
 | `GET /stats` | Counts for the home screen |
 | `GET /audit` | Activity log |
 | `GET /health` | Liveness and database check |

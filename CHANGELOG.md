@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0] - 2026-11-24
+
+### Added
+- Academic sessions, classes with capacity and class teachers.
+- Student enrolment with state-wide learner IDs, per-school admission numbers and duplicate detection.
+- Parent and guardian links, class placement and class history, withdrawal.
+- Transfers between schools (request, accept, reject, cancel); parent accounts follow their only child to the new school.
+- `GET /my/classes` for teachers and `GET /my/children` for parents; student counts on `GET /stats`.
+- End-to-end tests for students, classes and transfers.
+
 ## [0.1.0] - 2026-11-24
 
 ### Added

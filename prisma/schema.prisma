@@ -30,40 +30,47 @@ enum Ownership {
 }
 
 model School {
-  id        String      @id @default(uuid()) @db.Uuid
-  code      String      @unique
-  name      String
-  lga       String
-  level     SchoolLevel
-  ownership Ownership
-  address   String?
-  isActive  Boolean     @default(true)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  users     User[]
+  id           String      @id @default(uuid()) @db.Uuid
+  code         String      @unique
+  name         String
+  lga          String
+  level        SchoolLevel
+  ownership    Ownership
+  address      String?
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  users        User[]
+  classes      ClassArm[]
+  students     Student[]   @relation("CurrentSchool")
+  enrolments   Enrolment[]
+  transfersOut Transfer[]  @relation("TransferFrom")
+  transfersIn  Transfer[]  @relation("TransferTo")
 
   @@index([lga])
 }
 
 model User {
-  id                 String         @id @default(uuid()) @db.Uuid
+  id                 String            @id @default(uuid()) @db.Uuid
   fullName           String
-  email              String?        @unique
-  phone              String?        @unique
+  email              String?           @unique
+  phone              String?           @unique
   role               Role
-  schoolId           String?        @db.Uuid
-  school             School?        @relation(fields: [schoolId], references: [id])
+  schoolId           String?           @db.Uuid
+  school             School?           @relation(fields: [schoolId], references: [id])
   passwordHash       String
-  mustChangePassword Boolean        @default(true)
-  isActive           Boolean        @default(true)
-  failedLoginCount   Int            @default(0)
+  mustChangePassword Boolean           @default(true)
+  isActive           Boolean           @default(true)
+  failedLoginCount   Int               @default(0)
   lockedUntil        DateTime?
   lastLoginAt        DateTime?
   passwordChangedAt  DateTime?
-  createdById        String?        @db.Uuid
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  createdById        String?           @db.Uuid
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
   refreshTokens      RefreshToken[]
+  classesTaught      ClassArm[]
+  children           StudentGuardian[]
 
   @@index([role])
   @@index([schoolId])
@@ -98,4 +105,170 @@ model AuditLog {
   @@index([createdAt])
   @@index([schoolId])
   @@index([actorId])
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 2: academic sessions, classes and students
+
+enum ClassLevel {
+  PRIMARY_1
+  PRIMARY_2
+  PRIMARY_3
+  PRIMARY_4
+  PRIMARY_5
+  PRIMARY_6
+  JSS_1
+  JSS_2
+  JSS_3
+  SSS_1
+  SSS_2
+  SSS_3
+}
+
+enum Sex {
+  F
+  M
+}
+
+enum StudentStatus {
+  ACTIVE
+  WITHDRAWN
+  GRADUATED
+}
+
+enum TransferStatus {
+  REQUESTED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+/// An academic year, e.g. 2025/2026. Exactly one is current; classes belong to a session.
+model AcademicSession {
+  id         String           @id @default(uuid()) @db.Uuid
+  name       String           @unique
+  startDate  DateTime         @db.Date
+  endDate    DateTime         @db.Date
+  isCurrent  Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  classes    ClassArm[]
+  placements ClassPlacement[]
+}
+
+/// A class arm in a school for one session, e.g. JSS 2A in 2025/2026.
+model ClassArm {
+  id             String           @id @default(uuid()) @db.Uuid
+  schoolId       String           @db.Uuid
+  school         School           @relation(fields: [schoolId], references: [id])
+  sessionId      String           @db.Uuid
+  session        AcademicSession  @relation(fields: [sessionId], references: [id])
+  level          ClassLevel
+  arm            String
+  capacity       Int              @default(40)
+  classTeacherId String?          @db.Uuid
+  classTeacher   User?            @relation(fields: [classTeacherId], references: [id])
+  createdAt      DateTime         @default(now())
+  placements     ClassPlacement[]
+
+  @@unique([schoolId, sessionId, level, arm])
+  @@index([classTeacherId])
+}
+
+/// A learner. The learner ID is unique across Osun State and follows the student between schools.
+model Student {
+  id              String            @id @default(uuid()) @db.Uuid
+  learnerId       String            @unique
+  surname         String
+  firstName       String
+  middleName      String?
+  sex             Sex
+  dateOfBirth     DateTime          @db.Date
+  stateOfOrigin   String?
+  lgaOfOrigin     String?
+  homeAddress     String?
+  status          StudentStatus     @default(ACTIVE)
+  currentSchoolId String?           @db.Uuid
+  currentSchool   School?           @relation("CurrentSchool", fields: [currentSchoolId], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  enrolments      Enrolment[]
+  placements      ClassPlacement[]
+  guardians       StudentGuardian[]
+  transfers       Transfer[]
+
+  @@index([currentSchoolId])
+  @@index([surname, firstName, dateOfBirth])
+}
+
+/// A student's time at one school. Only one enrolment per student is open (leftOn is null).
+model Enrolment {
+  id              String    @id @default(uuid()) @db.Uuid
+  studentId       String    @db.Uuid
+  student         Student   @relation(fields: [studentId], references: [id])
+  schoolId        String    @db.Uuid
+  school          School    @relation(fields: [schoolId], references: [id])
+  admissionNumber String
+  admittedOn      DateTime  @db.Date
+  leftOn          DateTime? @db.Date
+  leftReason      String?
+  createdAt       DateTime  @default(now())
+
+  @@unique([schoolId, admissionNumber])
+  @@index([studentId])
+}
+
+/// Which class a student is in for a session. One per student per session.
+model ClassPlacement {
+  id         String          @id @default(uuid()) @db.Uuid
+  studentId  String          @db.Uuid
+  student    Student         @relation(fields: [studentId], references: [id])
+  classArmId String          @db.Uuid
+  classArm   ClassArm        @relation(fields: [classArmId], references: [id])
+  sessionId  String          @db.Uuid
+  session    AcademicSession @relation(fields: [sessionId], references: [id])
+  placedAt   DateTime        @default(now())
+
+  @@unique([studentId, sessionId])
+  @@index([classArmId])
+}
+
+/// Links a parent account to a student.
+model StudentGuardian {
+  studentId    String   @db.Uuid
+  student      Student  @relation(fields: [studentId], references: [id])
+  parentId     String   @db.Uuid
+  parent       User     @relation(fields: [parentId], references: [id])
+  relationship String
+  createdAt    DateTime @default(now())
+
+  @@id([studentId, parentId])
+  @@index([parentId])
+}
+
+/// Moving a student from one school to another. The receiving school must accept.
+model Transfer {
+  id            String         @id @default(uuid()) @db.Uuid
+  studentId     String         @db.Uuid
+  student       Student        @relation(fields: [studentId], references: [id])
+  fromSchoolId  String         @db.Uuid
+  fromSchool    School         @relation("TransferFrom", fields: [fromSchoolId], references: [id])
+  toSchoolId    String         @db.Uuid
+  toSchool      School         @relation("TransferTo", fields: [toSchoolId], references: [id])
+  status        TransferStatus @default(REQUESTED)
+  reason        String
+  note          String?
+  requestedById String         @db.Uuid
+  decidedById   String?        @db.Uuid
+  requestedAt   DateTime       @default(now())
+  decidedAt     DateTime?
+
+  @@index([fromSchoolId, status])
+  @@index([toSchoolId, status])
+  @@index([studentId])
+}
+
+/// Counters for learner IDs and admission numbers.
+model Counter {
+  key   String @id
+  value Int    @default(0)
 }

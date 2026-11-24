@@ -13,6 +13,14 @@ export class StatsController {
   @Get()
   async summary(@CurrentUser() me: AuthUser) {
     const scope = MINISTRY_ROLES.includes(me.role) ? {} : { schoolId: me.schoolId };
+    const session = await this.prisma.academicSession.findFirst({ where: { isCurrent: true } });
+    const studentScope = MINISTRY_ROLES.includes(me.role) ? {} : { currentSchoolId: me.schoolId };
+    const [students, unplaced, classes] = await Promise.all([
+      this.prisma.student.count({ where: { ...studentScope, status: 'ACTIVE' } }),
+      this.prisma.student.count({ where: { ...studentScope, status: 'ACTIVE', placements: { none: { sessionId: session?.id ?? undefined } } } }),
+      session ? this.prisma.classArm.count({ where: { sessionId: session.id, ...(MINISTRY_ROLES.includes(me.role) ? {} : { schoolId: me.schoolId! }) } }) : Promise.resolve(0),
+    ]);
+    const pendingTransfersIn = me.role === Role.SCHOOL_ADMIN ? await this.prisma.transfer.count({ where: { toSchoolId: me.schoolId!, status: 'REQUESTED' } }) : 0;
     const [byRole, schools, pending] = await Promise.all([
       this.prisma.user.groupBy({ by: ['role'], where: { ...scope, isActive: true }, _count: true }),
       MINISTRY_ROLES.includes(me.role) ? this.prisma.school.count({ where: { isActive: true } }) : Promise.resolve(null),
@@ -20,6 +28,6 @@ export class StatsController {
     ]);
     const counts = Object.fromEntries(Object.values(Role).map((r) => [r, 0])) as Record<Role, number>;
     byRole.forEach((c) => (counts[c.role] = c._count));
-    return { accountsByRole: counts, schools, awaitingFirstSignIn: pending };
+    return { accountsByRole: counts, schools, awaitingFirstSignIn: pending, students, unplaced, classes, session: session?.name ?? null, pendingTransfersIn };
   }
 }

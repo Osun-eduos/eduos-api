@@ -9,7 +9,11 @@ import { JwtAuthGuard } from './common/jwt-auth.guard';
 import { RolesGuard } from './common/roles.guard';
 import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
+import { ClassesModule } from './classes/classes.module';
 import { SchoolsModule } from './schools/schools.module';
+import { SessionsController } from './sessions/sessions.controller';
+import { StudentsModule } from './students/students.module';
+import { TransfersModule } from './transfers/transfers.module';
 import { StatsController } from './stats/stats.controller';
 import { UsersModule } from './users/users.module';
 
@@ -31,8 +35,11 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     UsersModule,
     SchoolsModule,
+    ClassesModule,
+    StudentsModule,
+    TransfersModule,
   ],
-  controllers: [HealthController, StatsController],
+  controllers: [HealthController, StatsController, SessionsController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
