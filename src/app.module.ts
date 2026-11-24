@@ -1,0 +1,42 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { JwtModule } from '@nestjs/jwt';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AuditModule } from './audit/audit.module';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './common/jwt-auth.guard';
+import { RolesGuard } from './common/roles.guard';
+import { HealthController } from './health/health.controller';
+import { PrismaModule } from './prisma/prisma.module';
+import { SchoolsModule } from './schools/schools.module';
+import { StatsController } from './stats/stats.controller';
+import { UsersModule } from './users/users.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
+    JwtModule.registerAsync({
+      global: true,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const secret = config.get<string>('JWT_ACCESS_SECRET');
+        if (!secret || secret.length < 32) throw new Error('JWT_ACCESS_SECRET must be set to at least 32 characters.');
+        return { secret, signOptions: { expiresIn: config.get('ACCESS_TOKEN_TTL') ?? '15m', issuer: 'eduos-api' }, verifyOptions: { issuer: 'eduos-api' } };
+      },
+    }),
+    PrismaModule,
+    AuditModule,
+    AuthModule,
+    UsersModule,
+    SchoolsModule,
+  ],
+  controllers: [HealthController, StatsController],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
+})
+export class AppModule {}

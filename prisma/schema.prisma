@@ -1,0 +1,101 @@
+// Osun EduOS data model: accounts and schools (milestone 1).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MINISTRY_ADMIN
+  MINISTRY_OFFICER
+  SCHOOL_ADMIN
+  TEACHER
+  PARENT
+}
+
+enum SchoolLevel {
+  PRIMARY
+  JUNIOR_SECONDARY
+  SENIOR_SECONDARY
+  JUNIOR_AND_SENIOR
+}
+
+enum Ownership {
+  PUBLIC
+  PRIVATE
+}
+
+model School {
+  id        String      @id @default(uuid()) @db.Uuid
+  code      String      @unique
+  name      String
+  lga       String
+  level     SchoolLevel
+  ownership Ownership
+  address   String?
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  users     User[]
+
+  @@index([lga])
+}
+
+model User {
+  id                 String         @id @default(uuid()) @db.Uuid
+  fullName           String
+  email              String?        @unique
+  phone              String?        @unique
+  role               Role
+  schoolId           String?        @db.Uuid
+  school             School?        @relation(fields: [schoolId], references: [id])
+  passwordHash       String
+  mustChangePassword Boolean        @default(true)
+  isActive           Boolean        @default(true)
+  failedLoginCount   Int            @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  passwordChangedAt  DateTime?
+  createdById        String?        @db.Uuid
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  refreshTokens      RefreshToken[]
+
+  @@index([role])
+  @@index([schoolId])
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?   @db.Uuid
+  userAgent  String?
+  ip         String?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  targetType String?
+  targetId   String?
+  schoolId   String?  @db.Uuid
+  meta       Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([schoolId])
+  @@index([actorId])
+}
