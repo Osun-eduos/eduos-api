@@ -10,3 +10,7 @@ export async function requireCurrentSession(db: Prisma.TransactionClient) {
   if (!s) throw new BadRequestException('The Ministry has not set the current academic session yet.');
   return s;
 }
+
+export async function currentTerm(db: Prisma.TransactionClient) {
+  return db.term.findFirst({ where: { isCurrent: true }, include: { session: true } });
+}

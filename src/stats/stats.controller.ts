@@ -5,12 +5,16 @@ import { CurrentUser } from '../common/decorators';
 import { MINISTRY_ROLES } from '../common/roles';
 import { AttendanceService } from '../attendance/attendance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ResultsService } from '../results/results.service';
+import { currentTerm } from '../common/session';
+import { termName } from '../common/results';
 
 @Controller('stats')
 export class StatsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly attendance: AttendanceService,
+    private readonly results: ResultsService,
   ) {}
 
   /** Account and school counts for the signed-in user's home screen. */
@@ -33,6 +37,8 @@ export class StatsController {
     const counts = Object.fromEntries(Object.values(Role).map((r) => [r, 0])) as Record<Role, number>;
     byRole.forEach((c) => (counts[c.role] = c._count));
     const attendanceToday = me.role === Role.SCHOOL_ADMIN || MINISTRY_ROLES.includes(me.role) ? await this.attendance.todayStats(me) : null;
-    return { attendanceToday, accountsByRole: counts, schools, awaitingFirstSignIn: pending, students, unplaced, classes, session: session?.name ?? null, pendingTransfersIn };
+    const term = await currentTerm(this.prisma);
+    const scoresAwaitingApproval = await this.results.awaitingApproval(me);
+    return { term: term ? { id: term.id, name: termName(term.number), session: term.session.name } : null, scoresAwaitingApproval, attendanceToday, accountsByRole: counts, schools, awaitingFirstSignIn: pending, students, unplaced, classes, session: session?.name ?? null, pendingTransfersIn };
   }
 }

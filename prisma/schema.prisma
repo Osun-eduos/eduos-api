@@ -73,6 +73,10 @@ model User {
   children           StudentGuardian[]
   registersTaken     AttendanceRegister[] @relation("RegisterTakenBy")
   registersUpdated   AttendanceRegister[] @relation("RegisterUpdatedBy")
+  subjectsTaught     ClassSubject[]
+  sheetsSubmitted    ScoreSheet[]         @relation("SheetSubmittedBy")
+  sheetsDecided      ScoreSheet[]         @relation("SheetDecidedBy")
+  resultsReleased    ClassResult[]
 
   @@index([role])
   @@index([schoolId])
@@ -155,6 +159,7 @@ model AcademicSession {
   createdAt  DateTime         @default(now())
   classes    ClassArm[]
   placements ClassPlacement[]
+  terms      Term[]
 }
 
 /// A class arm in a school for one session, e.g. JSS 2A in 2025/2026.
@@ -172,6 +177,9 @@ model ClassArm {
   createdAt      DateTime             @default(now())
   placements     ClassPlacement[]
   registers      AttendanceRegister[]
+  subjects       ClassSubject[]
+  results        ClassResult[]
+  remarks        ReportRemark[]
 
   @@unique([schoolId, sessionId, level, arm])
   @@index([classTeacherId])
@@ -199,6 +207,8 @@ model Student {
   guardians       StudentGuardian[]
   transfers       Transfer[]
   attendance      AttendanceMark[]
+  scores          Score[]
+  remarks         ReportRemark[]
 
   @@index([currentSchoolId])
   @@index([surname, firstName, dateOfBirth])
@@ -313,4 +323,114 @@ model AttendanceMark {
 
   @@unique([registerId, studentId])
   @@index([studentId])
+}
+
+/// A term within an academic session. One term is current across the state.
+model Term {
+  id            String          @id @default(uuid()) @db.Uuid
+  sessionId     String          @db.Uuid
+  session       AcademicSession @relation(fields: [sessionId], references: [id])
+  number        Int
+  startDate     DateTime        @db.Date
+  endDate       DateTime        @db.Date
+  isCurrent     Boolean         @default(false)
+  /// Assessment components, e.g. [{"key":"CA1","label":"CA 1","max":20}, ...]; maxima add up to 100.
+  components    Json
+  showPositions Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  sheets        ScoreSheet[]
+  results       ClassResult[]
+  remarks       ReportRemark[]
+
+  @@unique([sessionId, number])
+}
+
+/// A subject taken by a class, and who teaches it.
+model ClassSubject {
+  id          String       @id @default(uuid()) @db.Uuid
+  classArmId  String       @db.Uuid
+  classArm    ClassArm     @relation(fields: [classArmId], references: [id])
+  subjectCode String
+  teacherId   String?      @db.Uuid
+  teacher     User?        @relation(fields: [teacherId], references: [id])
+  createdAt   DateTime     @default(now())
+  sheets      ScoreSheet[]
+
+  @@unique([classArmId, subjectCode])
+  @@index([teacherId])
+}
+
+enum SheetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  RETURNED
+}
+
+/// One subject's scores for one class in one term, approved by the school.
+model ScoreSheet {
+  id             String       @id @default(uuid()) @db.Uuid
+  classSubjectId String       @db.Uuid
+  classSubject   ClassSubject @relation(fields: [classSubjectId], references: [id])
+  termId         String       @db.Uuid
+  term           Term         @relation(fields: [termId], references: [id])
+  status         SheetStatus  @default(DRAFT)
+  submittedById  String?      @db.Uuid
+  submittedBy    User?        @relation("SheetSubmittedBy", fields: [submittedById], references: [id])
+  submittedAt    DateTime?
+  decidedById    String?      @db.Uuid
+  decidedBy      User?        @relation("SheetDecidedBy", fields: [decidedById], references: [id])
+  decidedAt      DateTime?
+  returnNote     String?
+  updatedAt      DateTime     @updatedAt
+  scores         Score[]
+
+  @@unique([classSubjectId, termId])
+  @@index([termId])
+}
+
+model Score {
+  id        String     @id @default(uuid()) @db.Uuid
+  sheetId   String     @db.Uuid
+  sheet     ScoreSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  studentId String     @db.Uuid
+  student   Student    @relation(fields: [studentId], references: [id])
+  /// Marks per component key, e.g. {"CA1": 18, "CA2": 15, "EXAM": 52}.
+  marks     Json
+  /// Set when every component has a mark.
+  total     Float?
+  updatedAt DateTime   @updatedAt
+
+  @@unique([sheetId, studentId])
+  @@index([studentId])
+}
+
+/// A class's term results, released to parents and the Ministry.
+model ClassResult {
+  id           String   @id @default(uuid()) @db.Uuid
+  classArmId   String   @db.Uuid
+  classArm     ClassArm @relation(fields: [classArmId], references: [id])
+  termId       String   @db.Uuid
+  term         Term     @relation(fields: [termId], references: [id])
+  releasedById String   @db.Uuid
+  releasedBy   User     @relation(fields: [releasedById], references: [id])
+  releasedAt   DateTime @default(now())
+
+  @@unique([classArmId, termId])
+}
+
+/// Class teacher's and principal's remarks on a student's report card.
+model ReportRemark {
+  id              String   @id @default(uuid()) @db.Uuid
+  studentId       String   @db.Uuid
+  student         Student  @relation(fields: [studentId], references: [id])
+  termId          String   @db.Uuid
+  term            Term     @relation(fields: [termId], references: [id])
+  classArmId      String   @db.Uuid
+  classArm        ClassArm @relation(fields: [classArmId], references: [id])
+  teacherRemark   String?
+  principalRemark String?
+  updatedAt       DateTime @updatedAt
+
+  @@unique([studentId, termId])
 }

@@ -60,6 +60,8 @@ export class SessionsController {
   async makeCurrent(@CurrentUser() me: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const s = await this.prisma.$transaction(async (tx) => {
       await tx.academicSession.updateMany({ where: { isCurrent: true }, data: { isCurrent: false } });
+      // A term belongs to its session, so switching sessions leaves no current term until the Ministry picks one.
+      await tx.term.updateMany({ where: { isCurrent: true, sessionId: { not: id } }, data: { isCurrent: false } });
       return tx.academicSession.update({ where: { id }, data: { isCurrent: true } });
     });
     await this.audit.record({ actorId: me.id, action: 'session.made_current', targetType: 'session', targetId: id, meta: { name: s.name }, ip: req.ip });

@@ -56,7 +56,9 @@ export class StudentsService {
     if (actor.role === Role.SCHOOL_ADMIN && s.currentSchoolId === actor.schoolId) return s;
     if (actor.role === Role.TEACHER) {
       const sid = await this.sessionId();
-      const taught = await this.prisma.classPlacement.count({ where: { studentId, sessionId: sid ?? undefined, classArm: { classTeacherId: actor.id } } });
+      const taught = await this.prisma.classPlacement.count({
+        where: { studentId, sessionId: sid ?? undefined, classArm: { OR: [{ classTeacherId: actor.id }, { subjects: { some: { teacherId: actor.id } } }] } },
+      });
       if (taught) return s;
     }
     if (actor.role === Role.PARENT) {

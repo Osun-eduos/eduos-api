@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuditModule } from './audit/audit.module';
+import { ResultsModule } from './results/results.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/jwt-auth.guard';
 import { RolesGuard } from './common/roles.guard';
@@ -40,6 +41,7 @@ import { UsersModule } from './users/users.module';
     StudentsModule,
     TransfersModule,
     AttendanceModule,
+    ResultsModule,
   ],
   controllers: [HealthController, StatsController, SessionsController],
   providers: [

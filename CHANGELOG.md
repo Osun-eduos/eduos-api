@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0] - 2026-11-24
+
+### Added
+- Terms with dates, score split and a positions setting; switching sessions clears the current term.
+- State subject list, class subjects and subject teachers.
+- Score sheets with draft, submit, approve and return; marks validated against each component's maximum.
+- Broadsheet with averages and positions, report card remarks, release of class results, report cards with attendance, and a results summary for the Ministry.
+- Subject teachers can view the students in classes they teach.
+- End-to-end tests for results.
+
 ## [0.3.0] - 2026-11-24
 
 ### Added
