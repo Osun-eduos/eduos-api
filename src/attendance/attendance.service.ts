@@ -4,7 +4,8 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
 import { className, LEVEL_ORDER } from '../common/classes';
 import { addDays, isoDate, parseDate, today } from '../common/dates';
-import { MINISTRY_ROLES } from '../common/roles';
+import { holidayOn } from '../common/holidays';
+import { isOversight, schoolsInScope, seesLga } from '../common/scope';
 import { currentSession } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudentsService } from '../students/students.service';
@@ -26,7 +27,7 @@ const isWeekend = (d: Date) => d.getUTCDay() === 0 || d.getUTCDay() === 6;
 const fullName = (s: { surname: string; firstName: string; middleName: string | null }) => [s.surname, s.firstName, s.middleName].filter(Boolean).join(' ');
 
 const classInclude = {
-  school: { select: { id: true, name: true } },
+  school: { select: { id: true, name: true, lga: true } },
   session: true,
   classTeacher: { select: { id: true, fullName: true } },
 } satisfies Prisma.ClassArmInclude;
@@ -47,16 +48,16 @@ export class AttendanceService {
     const c = await this.prisma.classArm.findUnique({ where: { id: classId }, include: classInclude });
     const visible =
       c &&
-      (MINISTRY_ROLES.includes(actor.role) ||
+      (seesLga(actor, c.school.lga) ||
         (actor.role === Role.SCHOOL_ADMIN && c.schoolId === actor.schoolId) ||
         (actor.role === Role.TEACHER && c.classTeacherId === actor.id));
     if (!c || !visible) throw new NotFoundException('Class not found.');
-    if (edit && MINISTRY_ROLES.includes(actor.role)) throw new ForbiddenException('Registers are taken by the school.');
+    if (edit && isOversight(actor)) throw new ForbiddenException('Registers are taken by the school.');
     return c;
   }
 
   /** Validates that a date is a school day in the class's session, and says whether the actor can still change it. */
-  private schoolDay(actor: AuthUser, c: ClassRow, value: string) {
+  private async schoolDay(actor: AuthUser, c: ClassRow, value: string) {
     const date = parseDate(value, 'Date');
     const now = today();
     if (date > now) throw new BadRequestException('You cannot take a register for a future date.');
@@ -64,8 +65,10 @@ export class AttendanceService {
       throw new BadRequestException(`That date is outside the ${c.session.name} session (${isoDate(c.session.startDate)} to ${isoDate(c.session.endDate)}).`);
     }
     if (isWeekend(date)) throw new BadRequestException('That date is a weekend.');
+    const holiday = await holidayOn(this.prisma, date);
+    if (holiday) throw new BadRequestException(`That date is a holiday (${holiday.name}). Registers are not taken on holidays.`);
     let lockedReason: string | null = null;
-    if (MINISTRY_ROLES.includes(actor.role)) lockedReason = 'Registers are taken by the school.';
+    if (isOversight(actor)) lockedReason = 'Registers are taken by the school.';
     else if (!c.session.isCurrent) lockedReason = `The ${c.session.name} session is closed.`;
     else if (actor.role === Role.TEACHER && date < addDays(now, -TEACHER_EDIT_DAYS)) {
       lockedReason = `Class teachers can change registers for the last ${TEACHER_EDIT_DAYS} days. Ask your school administrator to correct older ones.`;
@@ -84,7 +87,7 @@ export class AttendanceService {
 
   async getRegister(actor: AuthUser, classId: string, value: string) {
     const c = await this.classFor(actor, classId);
-    const { date, lockedReason } = this.schoolDay(actor, c, value);
+    const { date, lockedReason } = await this.schoolDay(actor, c, value);
     const [reg, placements] = await Promise.all([
       this.prisma.attendanceRegister.findUnique({
         where: { classArmId_date: { classArmId: c.id, date } },
@@ -123,7 +126,7 @@ export class AttendanceService {
 
   async saveRegister(actor: AuthUser, dto: { classId: string; date: string; marks: MarkDto[] }, ip: string | null) {
     const c = await this.classFor(actor, dto.classId, true);
-    const { date, lockedReason } = this.schoolDay(actor, c, dto.date);
+    const { date, lockedReason } = await this.schoolDay(actor, c, dto.date);
     if (lockedReason) throw new ForbiddenException(lockedReason);
 
     const [placements, existing] = await Promise.all([
@@ -170,15 +173,18 @@ export class AttendanceService {
   async day(actor: AuthUser, value?: string, schoolId?: string) {
     let sid: string;
     if (actor.role === Role.SCHOOL_ADMIN) sid = actor.schoolId!;
-    else if (MINISTRY_ROLES.includes(actor.role)) {
+    else if (isOversight(actor)) {
       if (!schoolId) throw new BadRequestException('Choose a school.');
+      const school = await this.prisma.school.findUnique({ where: { id: schoolId }, select: { lga: true } });
+      if (!school || !seesLga(actor, school.lga)) throw new NotFoundException('School not found.');
       sid = schoolId;
     } else throw new ForbiddenException('You do not have access to this.');
     const date = value ? parseDate(value, 'Date') : today();
     if (date > today()) throw new BadRequestException('That date is in the future.');
     const session = await currentSession(this.prisma);
     if (!session) return { date: isoDate(date), session: null, isSchoolDay: false, classes: [], totals: { classes: 0, taken: 0, ...emptyCounts() } };
-    const isSchoolDay = !isWeekend(date) && date >= session.startDate && date <= session.endDate;
+    const holiday = await holidayOn(this.prisma, date);
+    const isSchoolDay = !holiday && !isWeekend(date) && date >= session.startDate && date <= session.endDate;
     const arms = await this.prisma.classArm.findMany({
       where: { schoolId: sid, sessionId: session.id },
       include: {
@@ -204,7 +210,7 @@ export class AttendanceService {
           taken: !!reg, takenBy: reg?.takenBy.fullName ?? null, takenAt: reg?.takenAt ?? null, counts: reg ? counts : null,
         };
       });
-    return { date: isoDate(date), session: session.name, isSchoolDay, classes, totals };
+    return { date: isoDate(date), session: session.name, isSchoolDay, holiday: holiday?.name ?? null, classes, totals };
   }
 
   private range(session: { startDate: Date; endDate: Date }, from?: string, to?: string) {
@@ -274,9 +280,11 @@ export class AttendanceService {
     const session = await currentSession(this.prisma);
     const date = today();
     if (!session) return null;
-    const isSchoolDay = !isWeekend(date) && date >= session.startDate && date <= session.endDate;
+    const holiday = await holidayOn(this.prisma, date);
+    const isSchoolDay = !holiday && !isWeekend(date) && date >= session.startDate && date <= session.endDate;
     const scope: Prisma.ClassArmWhereInput = { sessionId: session.id, placements: { some: {} } };
-    if (!MINISTRY_ROLES.includes(actor.role)) scope.schoolId = actor.schoolId!;
+    if (!isOversight(actor)) scope.schoolId = actor.schoolId!;
+    else if (actor.lga) scope.school = schoolsInScope(actor);
     const [classes, taken, marks] = await Promise.all([
       this.prisma.classArm.count({ where: scope }),
       this.prisma.attendanceRegister.count({ where: { date, classArm: scope } }),
@@ -284,6 +292,6 @@ export class AttendanceService {
     ]);
     const counts = emptyCounts();
     marks.forEach((m) => (counts[m.status] = m._count));
-    return { date: isoDate(date), isSchoolDay, classes, taken, counts, rate: attendanceRate(counts) };
+    return { date: isoDate(date), isSchoolDay, holiday: holiday?.name ?? null, classes, taken, counts, rate: attendanceRate(counts) };
   }
 }

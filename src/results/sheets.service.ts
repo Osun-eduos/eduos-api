@@ -3,7 +3,7 @@ import { Prisma, Role, SheetStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
 import { className } from '../common/classes';
-import { MINISTRY_ROLES } from '../common/roles';
+import { isOversight, seesLga } from '../common/scope';
 import { Component, gradeFor, round1, subjectName, termName } from '../common/results';
 import { currentTerm } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,7 +12,7 @@ export type Marks = Record<string, number | null>;
 
 const csInclude = {
   teacher: { select: { id: true, fullName: true } },
-  classArm: { include: { school: { select: { id: true, name: true } } } },
+  classArm: { include: { school: { select: { id: true, name: true, lga: true } } } },
 } satisfies Prisma.ClassSubjectInclude;
 type CsRow = Prisma.ClassSubjectGetPayload<{ include: typeof csInclude }>;
 
@@ -48,11 +48,11 @@ export class SheetsService {
     const isSchool = actor.role === Role.SCHOOL_ADMIN && c?.schoolId === actor.schoolId;
     const isSubjectTeacher = actor.role === Role.TEACHER && cs?.teacherId === actor.id;
     const isClassTeacher = actor.role === Role.TEACHER && c?.classTeacherId === actor.id;
-    if (!cs || !c || !(isSchool || isSubjectTeacher || isClassTeacher || MINISTRY_ROLES.includes(actor.role))) throw new NotFoundException('Subject not found.');
+    if (!cs || !c || !(isSchool || isSubjectTeacher || isClassTeacher || seesLga(actor, c.school.lga))) throw new NotFoundException('Subject not found.');
     const term = termId ? await this.prisma.term.findUnique({ where: { id: termId }, include: { session: true } }) : await currentTerm(this.prisma);
     if (!term) throw new BadRequestException('The Ministry has not set the current term yet.');
     if (term.sessionId !== c.sessionId) throw new BadRequestException(`${className(c.level, c.arm)} belongs to a different session from that term.`);
-    if (MINISTRY_ROLES.includes(actor.role)) {
+    if (isOversight(actor)) {
       const released = await this.prisma.classResult.count({ where: { classArmId: c.id, termId: term.id } });
       if (!released) throw new NotFoundException('These results have not been released yet.');
     }

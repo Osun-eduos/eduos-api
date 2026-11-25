@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Put, Query, Req } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { OVERSIGHT_ROLES } from '../common/roles';
 import { Request } from 'express';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser, Roles } from '../common/decorators';
@@ -16,7 +17,7 @@ export class AttendanceController {
   }
 
   @Get('register')
-  @Roles(Role.TEACHER, Role.SCHOOL_ADMIN, Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER)
+  @Roles(Role.TEACHER, Role.SCHOOL_ADMIN, ...OVERSIGHT_ROLES)
   register(@CurrentUser() me: AuthUser, @Query() q: RegisterQuery) {
     return this.attendance.getRegister(me, q.classId, q.date);
   }
@@ -28,13 +29,13 @@ export class AttendanceController {
   }
 
   @Get('day')
-  @Roles(Role.SCHOOL_ADMIN, Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER)
+  @Roles(Role.SCHOOL_ADMIN, ...OVERSIGHT_ROLES)
   day(@CurrentUser() me: AuthUser, @Query() q: DayQuery) {
     return this.attendance.day(me, q.date, q.schoolId);
   }
 
   @Get('class')
-  @Roles(Role.TEACHER, Role.SCHOOL_ADMIN, Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER)
+  @Roles(Role.TEACHER, Role.SCHOOL_ADMIN, ...OVERSIGHT_ROLES)
   classSummary(@CurrentUser() me: AuthUser, @Query() q: ClassRangeQuery) {
     return this.attendance.classSummary(me, q.classId, q.from, q.to);
   }

@@ -3,7 +3,7 @@ import { Prisma, Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
 import { LEVEL_CODES, LGAS } from '../common/lgas';
-import { MINISTRY_ROLES } from '../common/roles';
+import { assertSeesLga, isOversight, schoolsInScope } from '../common/scope';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CreateSchoolDto, UpdateSchoolDto } from './dto/school.dto';
@@ -34,14 +34,16 @@ export class SchoolsService {
     });
   }
 
-  directory() {
-    return this.prisma.school.findMany({ where: { isActive: true }, select: { id: true, name: true, code: true, lga: true }, orderBy: [{ lga: 'asc' }, { name: 'asc' }] });
+  /** Active schools: all of them for schools (transfers), or those an oversight user may see. */
+  directory(actor: AuthUser) {
+    return this.prisma.school.findMany({ where: { isActive: true, ...(isOversight(actor) ? schoolsInScope(actor) : {}) }, select: { id: true, name: true, code: true, lga: true }, orderBy: [{ lga: 'asc' }, { name: 'asc' }] });
   }
 
   async list(actor: AuthUser, lga?: string, q?: string) {
-    if (!MINISTRY_ROLES.includes(actor.role)) throw new ForbiddenException('You do not have access to this.');
+    if (!isOversight(actor)) throw new ForbiddenException('You do not have access to this.');
     const schools = await this.prisma.school.findMany({
       where: {
+        ...schoolsInScope(actor),
         ...(lga ? { lga } : {}),
         ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q.toUpperCase() } }] } : {}),
       },
@@ -52,9 +54,10 @@ export class SchoolsService {
   }
 
   async get(actor: AuthUser, id: string) {
-    if (!MINISTRY_ROLES.includes(actor.role) && actor.schoolId !== id) throw new ForbiddenException('You do not have access to this.');
+    if (!isOversight(actor) && actor.schoolId !== id) throw new ForbiddenException('You do not have access to this.');
     const school = await this.prisma.school.findUnique({ where: { id } });
     if (!school) throw new NotFoundException('School not found.');
+    if (isOversight(actor)) assertSeesLga(actor, school.lga);
     const counts = await this.prisma.user.groupBy({ by: ['role'], where: { schoolId: id }, _count: true });
     const students = await this.prisma.student.count({ where: { currentSchoolId: id, status: 'ACTIVE' } });
     return { ...school, students, accountsByRole: Object.fromEntries(counts.map((c) => [c.role, c._count])) };

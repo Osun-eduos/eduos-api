@@ -37,7 +37,7 @@ Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source 
 
 **Milestone 1: accounts and sign-in**
 
-- Accounts for five user types: Ministry administrator, Ministry officer, school administrator, teacher and parent.
+- Accounts for seven user types: Ministry administrator, Ministry officer, LGA education officer, school inspector, school administrator, teacher and parent. LGA officers see only the schools in their LGA; inspectors see one LGA or the whole state. Both are read only.
 - Sign-in with an email address or a Nigerian phone number (`0803…`, `+234803…` and `234803…` all work).
 - Schools with Osun school numbers (`OS/OSG/JSS/0001`), classified by LGA, level and ownership.
 - Accounts are issued down the chain with temporary passwords; the user must set their own at first sign-in.
@@ -84,11 +84,13 @@ They cover sign-in by email and phone, the forced password change, who may creat
 
 ## Who can do what
 
+LGA education officers and inspectors have the Ministry officer's read-only access, limited to their LGA (an inspector without an LGA covers the whole state). They cannot see accounts or the activity log.
+
 | Action | Ministry admin | Ministry officer | School admin | Teacher | Parent |
 | --- | --- | --- | --- | --- | --- |
 | Register, edit, deactivate schools | ✓ | | | | |
 | View all schools | ✓ | ✓ | own school | | |
-| Create Ministry accounts | ✓ | | | | |
+| Create Ministry, LGA officer and inspector accounts | ✓ | | | | |
 | Create school administrator accounts | ✓ | | | | |
 | Create teacher and parent accounts | ✓ any school | | ✓ own school | | |
 | Reset passwords, deactivate accounts | ✓ | | ✓ teachers & parents, own school | | |
@@ -96,8 +98,10 @@ They cover sign-in by email and phone, the forced password change, who may creat
 | View activity log | ✓ all | | own school | | |
 | Sign in, change own password | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Open and switch academic sessions | ✓ | | | | |
+| Set holidays (no registers on those days) | ✓ | | | | |
 | Create classes, assign class teachers | | | ✓ own school | | |
 | Enrol, edit, place, withdraw students; link parents | | | ✓ own school | | |
+| Import students from a spreadsheet | | | ✓ own school | | |
 | Request, accept, decline, cancel transfers | | | ✓ own school | | |
 | View students | ✓ all | ✓ all | own school | own class | own children |
 | View transfers | ✓ all | ✓ all | in and out of own school | | |
@@ -163,6 +167,17 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `GET /stats` | Counts for the home screen |
 | `GET /audit` | Activity log |
 | `GET /health` | Liveness and database check |
+
+
+### Holidays and spreadsheet imports
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /holidays?sessionId=` | Holidays in a session (the current one by default) |
+| `POST /holidays` | Ministry admin: `{ name, startDate, endDate? }`. Registers are refused on these days |
+| `POST /holidays/national` | Ministry admin: `{ sessionId }` adds the fixed-date federal holidays, Good Friday and Easter Monday, skipping any already set |
+| `DELETE /holidays/:id` | Ministry admin: remove a holiday |
+| `POST /students/import` | School admin: `{ rows, dryRun? }`, up to 500 rows. Checks every row (names, sex, dates read day first, class by name, capacity, duplicates in the file and the state, parent phone or email). With `dryRun` nothing is saved; otherwise the ready rows are enrolled in one transaction and new parents' temporary passwords are returned once |
 
 ## Deploy
 

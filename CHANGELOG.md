@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0] - 2026-11-25
+
+### Added
+- LGA education officer and school inspector roles. Both are read only and see only their LGA; an inspector without an LGA covers the state. Only the Ministry administrator creates them. Changing an officer's LGA signs them out.
+- Holidays set by the Ministry (`/holidays`), with a helper that adds the federal holidays for a session. Registers are refused on holidays, and the day view, home counts and a teacher's classes say which holiday it is.
+- Spreadsheet import of students (`POST /students/import`) with a dry run, per-row checks, class placement, parent linking by phone or email, and one-time parent passwords.
+
+### Changed
+- JSON request bodies may be up to 1 MB, for imports.
+
 ## [0.5.1] - 2026-11-25
 
 ### Added

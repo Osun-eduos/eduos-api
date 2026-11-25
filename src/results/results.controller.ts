@@ -5,6 +5,7 @@ import { Request } from 'express';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser, Roles } from '../common/decorators';
 import { CREDIT_MARK, GRADING, PASS_MARK, SUBJECTS } from '../common/results';
+import { OVERSIGHT_ROLES } from '../common/roles';
 import { AddSubjectDto, ClassTermQuery, ReleaseDto, ReturnDto, SaveRemarksDto, SaveScoresDto, SetTeacherDto, SheetQuery, TermQuery } from './dto';
 import { ResultsService } from './results.service';
 import { SheetsService } from './sheets.service';
@@ -14,7 +15,7 @@ class LevelQuery {
   @IsOptional() @IsEnum(ClassLevel) level?: ClassLevel;
 }
 
-const STAFF = [Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN, Role.TEACHER];
+const STAFF = [...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN, Role.TEACHER];
 
 @Controller()
 export class ResultsController {
@@ -127,7 +128,7 @@ export class ResultsController {
   }
 
   @Get('results/summary')
-  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN)
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
   summary(@CurrentUser() me: AuthUser, @Query() q: TermQuery) {
     return this.results.summary(me, q.termId, q.schoolId);
   }

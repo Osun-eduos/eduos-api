@@ -4,7 +4,8 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
 import { normaliseEmail, normalisePhone } from '../common/identity';
 import { generateTempPassword, hashPassword } from '../common/password';
-import { CAN_MANAGE, MINISTRY_ROLES, SCHOOL_ROLES } from '../common/roles';
+import { LGA_NAMES } from '../common/lgas';
+import { CAN_MANAGE, MINISTRY_ROLES, SCHOOL_ROLES, STATE_ROLES } from '../common/roles';
 import { userView } from '../common/user-view';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, ListUsersQuery, NewAccountDto, UpdateUserDto } from './dto/user.dto';
@@ -16,13 +17,26 @@ export class UsersService {
   /** Checks that `actor` may manage an account with this role in this school, and returns the school to use. */
   private scopeFor(actor: AuthUser, role: Role, schoolId: string | null | undefined): string | null {
     if (!CAN_MANAGE[actor.role].includes(role)) throw new ForbiddenException('You cannot manage this type of account.');
-    if (MINISTRY_ROLES.includes(role)) return null;
+    if (STATE_ROLES.includes(role)) return null;
     if (actor.role === Role.SCHOOL_ADMIN) {
       if (schoolId && schoolId !== actor.schoolId) throw new ForbiddenException('You can only manage accounts in your own school.');
       return actor.schoolId;
     }
     if (!schoolId) throw new BadRequestException('Choose the school this account belongs to.');
     return schoolId;
+  }
+
+  /** The LGA an account oversees: required for LGA officers, optional for inspectors, not allowed for others. */
+  private lgaFor(role: Role, lga: string | null | undefined): string | null {
+    const value = lga?.trim() || null;
+    if (role === Role.LGA_OFFICER && !value) throw new BadRequestException('Choose the LGA this officer oversees.');
+    if (value && role !== Role.LGA_OFFICER && role !== Role.INSPECTOR) throw new BadRequestException('Only LGA officers and inspectors oversee an LGA.');
+    if (value) {
+      const match = LGA_NAMES.find((n) => n.toLowerCase() === value.toLowerCase());
+      if (!match) throw new BadRequestException(`${value} is not an Osun LGA.`);
+      return match;
+    }
+    return null;
   }
 
   /** Validates and normalises the email and phone. At least one is required. */
@@ -52,6 +66,7 @@ export class UsersService {
     role: Role,
     schoolId: string | null,
     ip: string | null,
+    lga: string | null = null,
   ) {
     const { email, phone } = this.contact(dto.email, dto.phone);
     if (!email && !phone) throw new BadRequestException('Give an email address or a phone number so the person can sign in.');
@@ -60,7 +75,7 @@ export class UsersService {
     try {
       user = await tx.user.create({
         data: {
-          fullName: dto.fullName, email, phone, role, schoolId,
+          fullName: dto.fullName, email, phone, role, schoolId, lga,
           passwordHash: await hashPassword(tempPassword), mustChangePassword: true, createdById: actor.id,
         },
         include: { school: true },
@@ -69,7 +84,7 @@ export class UsersService {
       this.uniqueError(e);
     }
     await this.audit.record(
-      { actorId: actor.id, action: 'user.created', targetType: 'user', targetId: user.id, schoolId, meta: { role }, ip },
+      { actorId: actor.id, action: 'user.created', targetType: 'user', targetId: user.id, schoolId, meta: { role, ...(lga ? { lga } : {}) }, ip },
       tx,
     );
     return { user: userView(user), tempPassword };
@@ -77,12 +92,13 @@ export class UsersService {
 
   async create(actor: AuthUser, dto: CreateUserDto, ip: string | null) {
     const schoolId = this.scopeFor(actor, dto.role, dto.schoolId);
+    const lga = this.lgaFor(dto.role, dto.lga);
     if (schoolId) {
       const school = await this.prisma.school.findUnique({ where: { id: schoolId } });
       if (!school) throw new BadRequestException('That school does not exist.');
       if (!school.isActive) throw new BadRequestException('That school is deactivated.');
     }
-    return this.prisma.$transaction((tx) => this.createInTx(tx, actor, dto, dto.role, schoolId, ip));
+    return this.prisma.$transaction((tx) => this.createInTx(tx, actor, dto, dto.role, schoolId, ip, lga));
   }
 
   /** Which accounts the actor can see. */
@@ -140,13 +156,18 @@ export class UsersService {
       data.phone = c.phone;
     }
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    if (dto.lga !== undefined) {
+      if (target.role !== Role.LGA_OFFICER && target.role !== Role.INSPECTOR) throw new BadRequestException('Only LGA officers and inspectors oversee an LGA.');
+      data.lga = this.lgaFor(target.role, dto.lga);
+    }
     let u;
     try {
       u = await this.prisma.user.update({ where: { id }, data, include: { school: true } });
     } catch (e) {
       this.uniqueError(e);
     }
-    if (dto.isActive === false) await this.prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+    // The LGA travels in the access token, so a change signs the person out everywhere to take effect at once.
+    if (dto.isActive === false || (dto.lga !== undefined && u!.lga !== target.lga)) await this.prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
     const action = dto.isActive === false ? 'user.deactivated' : dto.isActive === true && !target.isActive ? 'user.reactivated' : 'user.updated';
     await this.audit.record({ actorId: actor.id, action, targetType: 'user', targetId: id, schoolId: target.schoolId, ip });
     return userView(u);

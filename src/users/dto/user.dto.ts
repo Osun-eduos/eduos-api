@@ -31,9 +31,23 @@ export class CreateUserDto extends NewAccountDto {
   @IsOptional()
   @IsUUID()
   schoolId?: string;
+
+  /** Required for LGA officers; optional for inspectors (empty means state-wide). */
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  lga?: string;
 }
 
 export class UpdateUserDto {
+  /** For LGA officers and inspectors: change the LGA they oversee (empty for a state-wide inspector). */
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  lga?: string;
+
   @Transform(trim)
   @IsOptional()
   @IsString()

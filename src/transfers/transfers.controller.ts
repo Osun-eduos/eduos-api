@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { OVERSIGHT_ROLES } from '../common/roles';
 import { Transform } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import { Request } from 'express';
@@ -29,7 +30,7 @@ export class TransfersController {
   constructor(private readonly transfers: TransfersService) {}
 
   @Get()
-  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN)
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
   list(@CurrentUser() me: AuthUser) {
     return this.transfers.list(me);
   }

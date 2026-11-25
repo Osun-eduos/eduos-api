@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
+import { OVERSIGHT_ROLES } from '../common/roles';
 import { ClassLevel, Role } from '@prisma/client';
 import { IsEnum, IsInt, IsOptional, IsUUID, Matches, Max, Min, ValidateIf } from 'class-validator';
 import { Request } from 'express';
@@ -42,13 +43,13 @@ export class ClassesController {
   constructor(private readonly classes: ClassesService) {}
 
   @Get()
-  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN, Role.TEACHER)
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN, Role.TEACHER)
   list(@CurrentUser() me: AuthUser, @Query('schoolId') schoolId?: string, @Query('sessionId') sessionId?: string) {
     return this.classes.list(me, schoolId, sessionId);
   }
 
   @Get('levels')
-  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN)
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
   levels(@CurrentUser() me: AuthUser, @Query('schoolId') schoolId?: string) {
     return this.classes.levels(me, schoolId);
   }

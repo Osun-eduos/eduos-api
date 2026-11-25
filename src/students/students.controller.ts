@@ -1,14 +1,15 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Request } from 'express';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser, Roles } from '../common/decorators';
 import { EnrolStudentDto, GuardianDto, ListStudentsQuery, PlaceDto, RELATIONSHIPS, UpdateStudentDto, WithdrawDto } from './dto';
+import { ImportStudentsDto, IMPORT_MAX_ROWS, StudentImportService } from './import';
 import { StudentsService } from './students.service';
 
 @Controller('students')
 export class StudentsController {
-  constructor(private readonly students: StudentsService) {}
+  constructor(private readonly students: StudentsService, private readonly importer: StudentImportService) {}
 
   @Get()
   list(@CurrentUser() me: AuthUser, @Query() q: ListStudentsQuery) {
@@ -18,6 +19,20 @@ export class StudentsController {
   @Get('relationships')
   relationships() {
     return RELATIONSHIPS;
+  }
+
+  /** Enrols students from a spreadsheet. With dryRun, only checks the rows. Rows with problems are skipped, never half-saved. */
+  @Post('import')
+  @Roles(Role.SCHOOL_ADMIN)
+  @HttpCode(200)
+  import(@CurrentUser() me: AuthUser, @Body() dto: ImportStudentsDto, @Req() req: Request) {
+    return this.importer.import(me, dto, req.ip ?? null);
+  }
+
+  @Get('import/limits')
+  @Roles(Role.SCHOOL_ADMIN)
+  importLimits() {
+    return { maxRows: IMPORT_MAX_ROWS };
   }
 
   @Get(':id')

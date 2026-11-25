@@ -5,7 +5,7 @@ import { AuthUser } from '../common/auth-user';
 import { className } from '../common/classes';
 import { nextAdmissionNumber } from '../common/counter';
 import { isoDate, parseDate, today } from '../common/dates';
-import { MINISTRY_ROLES } from '../common/roles';
+import { isOversight } from '../common/scope';
 import { currentSession } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -51,7 +51,8 @@ export class TransfersService {
   async list(actor: AuthUser) {
     let where: Prisma.TransferWhereInput = {};
     if (actor.role === Role.SCHOOL_ADMIN) where = { OR: [{ fromSchoolId: actor.schoolId! }, { toSchoolId: actor.schoolId! }] };
-    else if (!MINISTRY_ROLES.includes(actor.role)) throw new ForbiddenException('You do not have access to this.');
+    else if (!isOversight(actor)) throw new ForbiddenException('You do not have access to this.');
+    else if (actor.lga) where = { OR: [{ fromSchool: { lga: actor.lga } }, { toSchool: { lga: actor.lga } }] };
     const rows = await this.prisma.transfer.findMany({ where, include, orderBy: { requestedAt: 'desc' }, take: 300 });
     return this.view(rows);
   }

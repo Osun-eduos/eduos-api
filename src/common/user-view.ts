@@ -9,6 +9,7 @@ export function userView(u: User & { school?: Pick<School, 'id' | 'name' | 'code
     phone: u.phone,
     role: u.role,
     schoolId: u.schoolId,
+    lga: u.lga,
     school: u.school ? { id: u.school.id, name: u.school.name, code: u.school.code } : null,
     mustChangePassword: u.mustChangePassword,
     isActive: u.isActive,

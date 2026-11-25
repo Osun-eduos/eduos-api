@@ -3,7 +3,7 @@ import { Prisma, Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
 import { className } from '../common/classes';
-import { MINISTRY_ROLES } from '../common/roles';
+import { seesLga } from '../common/scope';
 import { coreSubjectsFor, subjectByCode, subjectName, subjectsFor, termName } from '../common/results';
 import { currentTerm } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
@@ -24,10 +24,10 @@ export class SubjectsService {
   }
 
   private async classFor(actor: AuthUser, classId: string, edit: boolean) {
-    const c = await this.prisma.classArm.findUnique({ where: { id: classId } });
+    const c = await this.prisma.classArm.findUnique({ where: { id: classId }, include: { school: { select: { lga: true } } } });
     const visible =
       c &&
-      (MINISTRY_ROLES.includes(actor.role) ||
+      (seesLga(actor, c.school.lga) ||
         (actor.role === Role.SCHOOL_ADMIN && c.schoolId === actor.schoolId) ||
         (actor.role === Role.TEACHER && c.classTeacherId === actor.id));
     if (!c || !visible) throw new NotFoundException('Class not found.');

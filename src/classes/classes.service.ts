@@ -3,7 +3,7 @@ import { ClassArm, ClassLevel, Prisma, Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
 import { className, LEVEL_ORDER, LEVELS_FOR_SCHOOL } from '../common/classes';
-import { MINISTRY_ROLES } from '../common/roles';
+import { isOversight, seesLga } from '../common/scope';
 import { currentSession, requireCurrentSession } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -34,8 +34,10 @@ export class ClassesService {
     const session = sessionId ? { id: sessionId } : await currentSession(this.prisma);
     if (!session) return [];
     const where: Prisma.ClassArmWhereInput = { sessionId: session.id };
-    if (MINISTRY_ROLES.includes(actor.role)) {
+    if (isOversight(actor)) {
       if (!schoolId) throw new BadRequestException('Choose a school.');
+      const school = await this.prisma.school.findUnique({ where: { id: schoolId }, select: { lga: true } });
+      if (!school || !seesLga(actor, school.lga)) throw new NotFoundException('School not found.');
       where.schoolId = schoolId;
     } else if (actor.role === Role.SCHOOL_ADMIN) where.schoolId = actor.schoolId!;
     else if (actor.role === Role.TEACHER) where.classTeacherId = actor.id;

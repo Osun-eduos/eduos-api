@@ -85,7 +85,7 @@ export class AuthService {
 
   /** Signs a short-lived access token and stores a new refresh token. */
   async issue(user: User & { school?: any }, meta: Meta, replacing?: string) {
-    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role, sid: user.schoolId, mcp: user.mustChangePassword });
+    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role, sid: user.schoolId, lga: user.lga, mcp: user.mustChangePassword });
     const refreshToken = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + this.refreshDays() * 86_400_000);
     const row = await this.prisma.refreshToken.create({

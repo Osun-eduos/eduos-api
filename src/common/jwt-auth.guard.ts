@@ -16,13 +16,13 @@ export class JwtAuthGuard implements CanActivate {
     const header: string | undefined = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) throw new UnauthorizedException('Please sign in.');
 
-    let payload: { sub: string; role: AuthUser['role']; sid: string | null; mcp: boolean };
+    let payload: { sub: string; role: AuthUser['role']; sid: string | null; lga?: string | null; mcp: boolean };
     try {
       payload = await this.jwt.verifyAsync(header.slice(7));
     } catch {
       throw new UnauthorizedException('Your session has expired. Please sign in again.');
     }
-    const user: AuthUser = { id: payload.sub, role: payload.role, schoolId: payload.sid, mustChangePassword: payload.mcp };
+    const user: AuthUser = { id: payload.sub, role: payload.role, schoolId: payload.sid, lga: payload.lga ?? null, mustChangePassword: payload.mcp };
     req.user = user;
 
     if (user.mustChangePassword && !this.reflector.getAllAndOverride<boolean>(ALLOW_PENDING_PASSWORD, targets)) {

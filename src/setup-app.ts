@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
@@ -8,6 +9,8 @@ export function setupApp(app: INestApplication) {
   const config = app.get(ConfigService);
   const http = app.getHttpAdapter().getInstance();
   if (config.get('TRUST_PROXY')) http.set('trust proxy', Number(config.get('TRUST_PROXY')) || 1);
+  // Spreadsheet imports send up to 500 rows at once, which is more than the default 100 KB.
+  (app as NestExpressApplication).useBodyParser('json', { limit: '1mb' });
   app.use(helmet());
   app.use(cookieParser());
   app.enableCors({

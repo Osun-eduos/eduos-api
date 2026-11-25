@@ -71,7 +71,7 @@ describe('Attendance (e2e)', () => {
     process.env.JWT_ACCESS_SECRET ??= 'test-secret-test-secret-test-secret-123';
     prisma = new PrismaClient();
     await prisma.$executeRawUnsafe(
-      'TRUNCATE "AttendanceMark", "AttendanceRegister", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',
+      'TRUNCATE "Holiday", "AttendanceMark", "AttendanceRegister", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',
     );
     await prisma.user.create({
       data: { fullName: 'Ministry Admin', email: 'admin@moe.test', role: Role.MINISTRY_ADMIN, passwordHash: await hashPassword('Temp1234x') },
@@ -249,5 +249,37 @@ describe('Attendance (e2e)', () => {
     const mine = await teacher.get('/my/classes').expect(200);
     expect(typeof mine.body.classes[0].registerTakenToday).toBe('boolean');
     expect(schoolBId).toBeTruthy();
+  });
+
+  it('lets the Ministry set holidays, and refuses registers on them', async () => {
+    const h = weekday(3);
+    await schoolA.post('/holidays', { name: 'Isese Day', startDate: h }).expect(403);
+    await ministry.post('/holidays', { name: 'X', startDate: h }).expect(400);
+    await ministry.post('/holidays', { name: 'Backwards', startDate: h, endDate: weekday(5) }).expect(400);
+    const made = await ministry.post('/holidays', { name: 'Isese Day', startDate: h }).expect(201);
+    expect(made.body).toMatchObject({ name: 'Isese Day', startDate: h, endDate: h, registersAlreadyTaken: 0 });
+    await ministry.post('/holidays', { name: 'Isese Day', startDate: h }).expect(409);
+
+    const refused = await teacher.put('/attendance/register', allPresent(h)).expect(400);
+    expect(refused.body.message).toMatch(/holiday \(Isese Day\)/);
+    await teacher.get(`/attendance/register?classId=${cls}&date=${h}`).expect(400);
+    const day = await schoolA.get(`/attendance/day?date=${h}`).expect(200);
+    expect(day.body).toMatchObject({ isSchoolDay: false, holiday: 'Isese Day' });
+
+    const list = await teacher.get('/holidays').expect(200);
+    expect(list.body.map((x: { name: string }) => x.name)).toContain('Isese Day');
+
+    await ministry.del(`/holidays/${made.body.id}`).expect(200);
+    await teacher.get(`/attendance/register?classId=${cls}&date=${h}`).expect(200);
+    expect((await schoolA.get(`/attendance/day?date=${h}`).expect(200)).body.holiday).toBeNull();
+  });
+
+  it('adds the national holidays that fall in a session, once', async () => {
+    const sessions = (await ministry.get('/sessions').expect(200)).body;
+    const first = await ministry.post('/holidays/national', { sessionId: sessions[0].id }).expect(201);
+    expect(first.body.added.length).toBeGreaterThan(0);
+    const again = await ministry.post('/holidays/national', { sessionId: sessions[0].id }).expect(201);
+    expect(again.body.added).toEqual([]);
+    await schoolA.post('/holidays/national', { sessionId: sessions[0].id }).expect(403);
   });
 });

@@ -5,8 +5,9 @@ import { AuthUser } from '../common/auth-user';
 import { className } from '../common/classes';
 import { nextAdmissionNumber, nextLearnerId } from '../common/counter';
 import { isoDate, parseDate, today } from '../common/dates';
-import { MINISTRY_ROLES } from '../common/roles';
+import { isOversight, seesLga } from '../common/scope';
 import { currentSession, requireCurrentSession } from '../common/session';
+import { holidayOn } from '../common/holidays';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EnrolStudentDto, GuardianDto, ListStudentsQuery, UpdateStudentDto, WithdrawDto } from './dto';
@@ -50,9 +51,10 @@ export class StudentsService {
 
   /** Throws unless the actor may see this student. Returns the student's current school. */
   async assertCanView(actor: AuthUser, studentId: string) {
-    const s = await this.prisma.student.findUnique({ where: { id: studentId }, select: { currentSchoolId: true } });
+    const s = await this.prisma.student.findUnique({ where: { id: studentId }, select: { currentSchoolId: true, currentSchool: { select: { lga: true } } } });
     if (!s) throw new NotFoundException('Student not found.');
-    if (MINISTRY_ROLES.includes(actor.role)) return s;
+    // Oversight users see students of schools in their area. Students with no current school (withdrawn) are state-level records.
+    if (isOversight(actor) && (seesLga(actor, s.currentSchool?.lga) || (!actor.lga && !s.currentSchoolId))) return s;
     if (actor.role === Role.SCHOOL_ADMIN && s.currentSchoolId === actor.schoolId) return s;
     if (actor.role === Role.TEACHER) {
       const sid = await this.sessionId();
@@ -155,8 +157,9 @@ export class StudentsService {
   async list(actor: AuthUser, q: ListStudentsQuery) {
     const sid = await this.sessionId();
     const and: Prisma.StudentWhereInput[] = [];
-    if (MINISTRY_ROLES.includes(actor.role)) {
+    if (isOversight(actor)) {
       if (q.schoolId) and.push({ currentSchoolId: q.schoolId });
+      if (actor.lga) and.push({ currentSchool: { lga: actor.lga } });
     } else if (actor.role === Role.SCHOOL_ADMIN) {
       and.push({ currentSchoolId: actor.schoolId });
     } else if (actor.role === Role.TEACHER) {
@@ -179,7 +182,7 @@ export class StudentsService {
         ],
       })));
     }
-    if (MINISTRY_ROLES.includes(actor.role) && !q.schoolId && !q.q?.trim()) throw new BadRequestException('Search by name or learner ID, or choose a school.');
+    if (isOversight(actor) && !q.schoolId && !q.q?.trim()) throw new BadRequestException('Search by name or learner ID, or choose a school.');
     const rows = await this.prisma.student.findMany({ where: { AND: and }, include: summaryInclude(sid), orderBy: [{ surname: 'asc' }, { firstName: 'asc' }], take: 1000 });
     return rows.map(studentSummary);
   }
@@ -308,8 +311,12 @@ export class StudentsService {
         },
       },
     });
+    const now = today();
+    const holiday = await holidayOn(this.prisma, now);
+    const weekend = now.getUTCDay() === 0 || now.getUTCDay() === 6;
     return {
       session: session.name,
+      today: { isSchoolDay: !holiday && !weekend && now >= session.startDate && now <= session.endDate, holiday: holiday?.name ?? null },
       classes: arms.map((a) => ({
         id: a.id, name: className(a.level, a.arm), capacity: a.capacity, registerTakenToday: a.registers.length > 0,
         students: a.placements

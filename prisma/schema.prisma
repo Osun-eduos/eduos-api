@@ -12,6 +12,8 @@ datasource db {
 enum Role {
   MINISTRY_ADMIN
   MINISTRY_OFFICER
+  LGA_OFFICER
+  INSPECTOR
   SCHOOL_ADMIN
   TEACHER
   PARENT
@@ -58,6 +60,8 @@ model User {
   role               Role
   schoolId           String?              @db.Uuid
   school             School?              @relation(fields: [schoolId], references: [id])
+  /// For LGA officers (required) and inspectors (optional): the one LGA they oversee. Empty means state-wide.
+  lga                String?
   passwordHash       String
   mustChangePassword Boolean              @default(true)
   isActive           Boolean              @default(true)
@@ -461,4 +465,18 @@ model SyncEvent {
   result     Json?
 
   @@index([userId, receivedAt])
+}
+
+/// A public holiday or other state-wide non-school day set by the Ministry. Registers are not taken on these days.
+model Holiday {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  startDate   DateTime @db.Date
+  /// Same as startDate for a one-day holiday.
+  endDate     DateTime @db.Date
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  @@unique([startDate, name])
+  @@index([startDate, endDate])
 }

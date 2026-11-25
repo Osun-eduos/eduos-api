@@ -4,7 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
 import { className } from '../common/classes';
 import { isoDate } from '../common/dates';
-import { MINISTRY_ROLES } from '../common/roles';
+import { isOversight, schoolsInScope, seesLga } from '../common/scope';
 import { Component, CREDIT_MARK, gradeFor, ordinal, PASS_MARK, rank, round1, scaleFor, subjectName, termName } from '../common/results';
 import { currentTerm } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
@@ -71,14 +71,14 @@ export class ResultsService {
   }
 
   private async classAccess(actor: AuthUser, classId: string, termId?: string) {
-    const c = await this.prisma.classArm.findUnique({ where: { id: classId }, include: { school: { select: { id: true, name: true } }, classTeacher: { select: { id: true, fullName: true } } } });
+    const c = await this.prisma.classArm.findUnique({ where: { id: classId }, include: { school: { select: { id: true, name: true, lga: true } }, classTeacher: { select: { id: true, fullName: true } } } });
     const isSchool = actor.role === Role.SCHOOL_ADMIN && c?.schoolId === actor.schoolId;
     const isClassTeacher = actor.role === Role.TEACHER && c?.classTeacherId === actor.id;
-    if (!c || !(isSchool || isClassTeacher || MINISTRY_ROLES.includes(actor.role))) throw new NotFoundException('Class not found.');
+    if (!c || !(isSchool || isClassTeacher || seesLga(actor, c.school.lga))) throw new NotFoundException('Class not found.');
     const term = await this.term(termId);
     if (term.sessionId !== c.sessionId) throw new BadRequestException(`${className(c.level, c.arm)} belongs to a different session from that term.`);
     const released = await this.prisma.classResult.findUnique({ where: { classArmId_termId: { classArmId: c.id, termId: term.id } }, include: { releasedBy: { select: { fullName: true } } } });
-    if (MINISTRY_ROLES.includes(actor.role) && !released) throw new NotFoundException('These results have not been released yet.');
+    if (isOversight(actor) && !released) throw new NotFoundException('These results have not been released yet.');
     return { c, term, released, isSchool, isClassTeacher };
   }
 
@@ -230,9 +230,9 @@ export class ResultsService {
   async summary(actor: AuthUser, termId?: string, schoolId?: string) {
     const term = await this.term(termId);
     const scope = actor.role === Role.SCHOOL_ADMIN ? actor.schoolId! : schoolId;
-    if (!MINISTRY_ROLES.includes(actor.role) && actor.role !== Role.SCHOOL_ADMIN) throw new ForbiddenException('You do not have access to this.');
+    if (!isOversight(actor) && actor.role !== Role.SCHOOL_ADMIN) throw new ForbiddenException('You do not have access to this.');
     const released = await this.prisma.classResult.findMany({
-      where: { termId: term.id, classArm: scope ? { schoolId: scope } : undefined },
+      where: { termId: term.id, classArm: { ...(scope ? { schoolId: scope } : {}), ...(isOversight(actor) && actor.lga ? { school: schoolsInScope(actor) } : {}) } },
       include: { classArm: { include: { school: { select: { id: true, name: true, lga: true } } } } },
     });
     const classIds = released.map((r) => r.classArmId);

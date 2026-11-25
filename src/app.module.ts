@@ -13,6 +13,7 @@ import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { ClassesModule } from './classes/classes.module';
 import { SchoolsModule } from './schools/schools.module';
+import { HolidaysController } from './holidays/holidays.controller';
 import { SessionsController } from './sessions/sessions.controller';
 import { StudentsModule } from './students/students.module';
 import { TransfersModule } from './transfers/transfers.module';
@@ -43,7 +44,7 @@ import { UsersModule } from './users/users.module';
     AttendanceModule,
     ResultsModule,
   ],
-  controllers: [HealthController, StatsController, SessionsController],
+  controllers: [HealthController, StatsController, SessionsController, HolidaysController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },

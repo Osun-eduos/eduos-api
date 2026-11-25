@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { OVERSIGHT_ROLES } from '../common/roles';
 import { Request } from 'express';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser, Roles } from '../common/decorators';
@@ -18,13 +19,13 @@ export class SchoolsController {
 
   /** Active schools, for choosing where to transfer a student. */
   @Get('directory')
-  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN)
-  directory() {
-    return this.schools.directory();
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
+  directory(@CurrentUser() me: AuthUser) {
+    return this.schools.directory(me);
   }
 
   @Get()
-  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER)
+  @Roles(...OVERSIGHT_ROLES)
   list(@CurrentUser() me: AuthUser, @Query('lga') lga?: string, @Query('q') q?: string) {
     return this.schools.list(me, lga, q);
   }
