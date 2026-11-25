@@ -1,7 +1,7 @@
 import { BadRequestException, Body, ConflictException, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
-import { Prisma, Role, Term } from '@prisma/client';
+import { Prisma, Role, SssGrading, Term } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Request } from 'express';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
@@ -25,6 +25,7 @@ class CreateTermDto {
   @Matches(DATE, { message: 'End date must be YYYY-MM-DD.' }) endDate!: string;
   @IsOptional() @IsArray() @ArrayMaxSize(6) @ValidateNested({ each: true }) @Type(() => ComponentDto) components?: ComponentDto[];
   @IsOptional() @IsBoolean() showPositions?: boolean;
+  @IsOptional() @IsEnum(SssGrading, { message: 'Senior secondary grading must be WAEC or BASIC.' }) sssGrading?: SssGrading;
 }
 
 class UpdateTermDto {
@@ -32,6 +33,7 @@ class UpdateTermDto {
   @IsOptional() @Matches(DATE) endDate?: string;
   @IsOptional() @IsArray() @ArrayMaxSize(6) @ValidateNested({ each: true }) @Type(() => ComponentDto) components?: ComponentDto[];
   @IsOptional() @IsBoolean() showPositions?: boolean;
+  @IsOptional() @IsEnum(SssGrading, { message: 'Senior secondary grading must be WAEC or BASIC.' }) sssGrading?: SssGrading;
 }
 
 class TermsQuery {
@@ -43,7 +45,7 @@ type TermWithSession = Term & { session: { id: string; name: string } };
 export const termView = (t: TermWithSession) => ({
   id: t.id, number: t.number, name: termName(t.number), session: { id: t.session.id, name: t.session.name },
   startDate: isoDate(t.startDate), endDate: isoDate(t.endDate), isCurrent: t.isCurrent,
-  components: t.components as unknown as Component[], showPositions: t.showPositions,
+  components: t.components as unknown as Component[], showPositions: t.showPositions, sssGrading: t.sssGrading,
 });
 
 @Controller('terms')
@@ -99,7 +101,7 @@ export class TermsController {
     const t = await this.prisma.term.create({
       data: {
         sessionId: session.id, number: dto.number, startDate: start, endDate: end, isCurrent: first,
-        components: components as unknown as Prisma.InputJsonValue, showPositions: dto.showPositions ?? true,
+        components: components as unknown as Prisma.InputJsonValue, showPositions: dto.showPositions ?? true, sssGrading: dto.sssGrading ?? SssGrading.WAEC,
       },
       include: { session: true },
     });
@@ -128,6 +130,11 @@ export class TermsController {
       data.components = dto.components as unknown as Prisma.InputJsonValue;
     }
     if (dto.showPositions !== undefined) data.showPositions = dto.showPositions;
+    if (dto.sssGrading && dto.sssGrading !== t.sssGrading) {
+      const released = await this.prisma.classResult.count({ where: { termId: id, classArm: { level: { in: ['SSS_1', 'SSS_2', 'SSS_3'] } } } });
+      if (released) throw new BadRequestException('Senior secondary results have already been released for this term, so their grading scale cannot change.');
+      data.sssGrading = dto.sssGrading;
+    }
     const u = await this.prisma.term.update({ where: { id }, data, include: { session: true } });
     await this.audit.record({ actorId: me.id, action: 'term.updated', targetType: 'term', targetId: id, meta: { term: termName(u.number), session: u.session.name, ...JSON.parse(JSON.stringify(dto)) }, ip: req.ip ?? null });
     return termView(u);

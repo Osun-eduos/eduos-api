@@ -337,6 +337,8 @@ model Term {
   /// Assessment components, e.g. [{"key":"CA1","label":"CA 1","max":20}, ...]; maxima add up to 100.
   components    Json
   showPositions Boolean         @default(true)
+  /// Grading scale for senior secondary classes: WAEC (A1 to F9) or BASIC (A to F).
+  sssGrading    SssGrading      @default(WAEC)
   createdAt     DateTime        @default(now())
   sheets        ScoreSheet[]
   results       ClassResult[]
@@ -358,6 +360,11 @@ model ClassSubject {
 
   @@unique([classArmId, subjectCode])
   @@index([teacherId])
+}
+
+enum SssGrading {
+  WAEC
+  BASIC
 }
 
 enum SheetStatus {

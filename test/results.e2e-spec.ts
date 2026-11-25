@@ -294,4 +294,38 @@ describe('Results (e2e)', () => {
     expect(card.body.subjects[0].position).toBeNull();
     expect(segunId && graceId).toBeTruthy();
   });
+
+  it('lets the Ministry choose WAEC or A to F grading for senior secondary, until SSS results are released', async () => {
+    const terms = await school.get('/terms').expect(200);
+    expect(terms.body.find((t: { id: string }) => t.id === term1).sssGrading).toBe('WAEC');
+    await ministry.patch(`/terms/${term1}`, { sssGrading: 'GCE' }).expect(400);
+    await school.patch(`/terms/${term1}`, { sssGrading: 'BASIC' }).expect(403);
+
+    const sss = (await school.post('/classes', { level: 'SSS_1', arm: 'A', classTeacherId: graceId }).expect(201)).body.id;
+    const tola = (await school.post('/students', { surname: 'Ajayi', firstName: 'Tola', sex: 'F', dateOfBirth: '2011-05-05', classArmId: sss, admittedOn: iso(-50) }).expect(201)).body.student.id;
+    const bio = (await school.post(`/classes/${sss}/subjects`, { subjectCode: 'BIO', teacherId: segunId }).expect(201)).body.id;
+    const sheet = await segun.put('/scoresheets', { classSubjectId: bio, scores: [{ studentId: tola, marks: { CA1: 15, CA2: 15, EXAM: 42 } }] }).expect(200);
+    expect(sheet.body.students[0]).toMatchObject({ total: 72, grade: 'B2' });
+    expect(sheet.body.term.sssGrading).toBe('WAEC');
+
+    // Junior secondary results are already released, but SSS ones are not, so the scale can still change.
+    const basic = await ministry.patch(`/terms/${term1}`, { sssGrading: 'BASIC' }).expect(200);
+    expect(basic.body.sssGrading).toBe('BASIC');
+    const again = await segun.get(`/scoresheets?classSubjectId=${bio}`).expect(200);
+    expect(again.body.students[0].grade).toBe('A');
+    // Junior secondary always uses A to F.
+    const jss = await parent.get(`/report-cards/${kemi}?termId=${term1}`).expect(200);
+    expect(jss.body.subjects.find((x: { code: string }) => x.code === 'MTH').grade).toBe('A');
+
+    await segun.post(`/scoresheets/${sheet.body.id}/submit`).expect(200);
+    await school.post(`/scoresheets/${sheet.body.id}/approve`).expect(200);
+    await school.post('/results/release', { classId: sss }).expect(200);
+    const card = await school.get(`/report-cards/${tola}?termId=${term1}`).expect(200);
+    expect(card.body.subjects[0]).toMatchObject({ total: 72, grade: 'A', remark: 'Excellent' });
+    expect(card.body.gradingScale.map((b: { grade: string }) => b.grade)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+
+    const locked = await ministry.patch(`/terms/${term1}`, { sssGrading: 'WAEC' }).expect(400);
+    expect(locked.body.message).toMatch(/already been released/);
+    await ministry.patch(`/terms/${term1}`, { sssGrading: 'BASIC' }).expect(200);
+  });
 });

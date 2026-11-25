@@ -204,7 +204,7 @@ export class ResultsService {
         .filter((s) => s.scores.has(studentId))
         .map((s) => {
           const sc = s.scores.get(studentId)!;
-          const g = gradeFor(c.level, sc.total);
+          const g = gradeFor(c.level, sc.total, term.sssGrading);
           return {
             code: s.code, name: s.name, marks: sc.marks, total: sc.total, grade: g?.grade ?? null, remark: g?.remark ?? null,
             classAverage: s.average, highest: s.highest, lowest: s.lowest,
@@ -221,7 +221,7 @@ export class ResultsService {
       },
       attendance: { ...att, marked: attMarked, rate: attMarked ? round1(((att.PRESENT + att.LATE) / attMarked) * 100) : null },
       remarks: { teacher: remark?.teacherRemark ?? null, principal: remark?.principalRemark ?? null },
-      gradingScale: scaleFor(c.level),
+      gradingScale: scaleFor(c.level, term.sssGrading),
       nextTermBegins: nextTerm ? isoDate(nextTerm.startDate) : null,
     };
   }

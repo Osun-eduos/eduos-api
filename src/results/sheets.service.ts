@@ -89,14 +89,14 @@ export class SheetsService {
     for (const s of sheet?.scores ?? []) {
       if (!rows.has(s.studentId)) rows.set(s.studentId, { id: s.student.id, learnerId: s.student.learnerId, fullName: fullName(s.student), inClass: false, marks: { ...blank, ...(s.marks as Marks) }, total: s.total });
     }
-    const students = [...rows.values()].sort((a, b) => a.fullName.localeCompare(b.fullName)).map((r) => ({ ...r, grade: gradeFor(c.level, r.total)?.grade ?? null }));
+    const students = [...rows.values()].sort((a, b) => a.fullName.localeCompare(b.fullName)).map((r) => ({ ...r, grade: gradeFor(c.level, r.total, term.sssGrading)?.grade ?? null }));
     const totals = students.filter((s) => s.inClass && s.total !== null).map((s) => s.total!);
     const lockedReason = this.lockedReason(ctx);
     return {
       id: sheet?.id ?? null,
       classSubject: { id: cs.id, code: cs.subjectCode, name: subjectName(cs.subjectCode), teacher: cs.teacher },
       class: { id: c.id, name: className(c.level, c.arm), level: c.level, school: c.school },
-      term: { id: term.id, name: termName(term.number), session: term.session.name, isCurrent: term.isCurrent, components },
+      term: { id: term.id, name: termName(term.number), session: term.session.name, isCurrent: term.isCurrent, components, sssGrading: term.sssGrading },
       status: sheet?.status ?? SheetStatus.DRAFT,
       returnNote: sheet?.returnNote ?? null,
       submitted: sheet?.submittedAt ? { by: sheet.submittedBy?.fullName ?? null, at: sheet.submittedAt } : null,

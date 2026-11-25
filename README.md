@@ -11,7 +11,7 @@ Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source 
 - Terms within each session, set by the Ministry, with dates, a score split (default CA 1 20, CA 2 20, Exam 60, adding up to 100) and a setting to show or hide class positions. One term is current across the state.
 - A state subject list for primary, junior and senior secondary (`src/common/results.ts`). Schools choose each class's subjects, or add the usual ones in one step, and assign a teacher to each.
 - Score sheets per subject, class and term. The subject teacher enters marks (whole or half marks, within each component's maximum), saves drafts and submits. The school administrator approves or returns with a note. Everything is recorded in the activity log.
-- Grades: A to F for primary and junior secondary, A1 to F9 (the WAEC scale) for senior secondary. Pass from 40, credit from 50.
+- Grades: A to F for primary and junior secondary. For senior secondary the Ministry chooses, per term, between the WAEC scale (A1 to F9, the default) and A to F. The choice locks once that term's SSS results are released. Pass from 40, credit from 50.
 - Class broadsheet with each student's average and position (equal averages share a position), class teacher's and principal's remarks, and release once every subject is approved. Released results cannot be changed.
 - Report cards with marks, grade, class average, highest, lowest and position per subject, overall position, the term's attendance, remarks and the grading key. Parents see them once released; the school and class teacher can preview.
 - Ministry results summary by school and by subject (average, pass and credit rates), from released results only.
@@ -101,7 +101,7 @@ They cover sign-in by email and phone, the forced password change, who may creat
 | View transfers | ✓ all | ✓ all | in and out of own school | | |
 | Take and correct registers | | | ✓ own school, any day this session | ✓ own class, last 7 days | |
 | View attendance | ✓ all | ✓ all | own school | own class | own children |
-| Set up terms, score split and positions | ✓ | | | | |
+| Set up terms, score split, positions and SSS grading | ✓ | | | | |
 | Choose class subjects and subject teachers | | | ✓ own school | | |
 | Enter and submit scores | | | ✓ own school | ✓ own subjects | |
 | Approve or return scores, release results | | | ✓ own school | | |
@@ -145,7 +145,7 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `GET /attendance/class?classId&from&to` | Per-student and per-day totals for a class (default: the session so far) |
 | `GET /attendance/students/:id?from&to` | One student's attendance and rate |
 | `GET /terms`, `GET /terms/current` | Terms of a session |
-| `POST /terms`, `PATCH /terms/:id`, `POST /terms/:id/make-current` | `{ number, startDate, endDate, components?, showPositions? }` |
+| `POST /terms`, `PATCH /terms/:id`, `POST /terms/:id/make-current` | `{ number, startDate, endDate, components?, showPositions?, sssGrading? }`; `sssGrading` is `WAEC` or `BASIC` |
 | `GET /subjects?level`, `GET /grading` | Subject list for a class level; grading scales |
 | `GET /classes/:id/subjects`, `POST /classes/:id/subjects`, `POST /classes/:id/subjects/core` | A class's subjects; add one; add the usual ones |
 | `PATCH /class-subjects/:id`, `DELETE /class-subjects/:id` | Set the subject teacher; remove a subject with no scores |

@@ -120,11 +120,15 @@ export const GRADING: Record<'BASIC' | 'SSS', Band[]> = {
 export const PASS_MARK = 40;
 export const CREDIT_MARK = 50;
 
-export const scaleFor = (level: ClassLevel) => GRADING[stageOf(level) === 'SSS' ? 'SSS' : 'BASIC'];
+/** How senior secondary classes are graded in a term, set by the Ministry. */
+export type SssGrading = 'WAEC' | 'BASIC';
 
-export function gradeFor(level: ClassLevel, total: number | null) {
+/** Primary and junior secondary always use A to F; senior secondary uses the term's choice (WAEC by default). */
+export const scaleFor = (level: ClassLevel, sss: SssGrading = 'WAEC') => GRADING[stageOf(level) === 'SSS' && sss === 'WAEC' ? 'SSS' : 'BASIC'];
+
+export function gradeFor(level: ClassLevel, total: number | null, sss: SssGrading = 'WAEC') {
   if (total === null) return null;
-  const band = scaleFor(level).find((b) => total >= b.min)!;
+  const band = scaleFor(level, sss).find((b) => total >= b.min)!;
   return { grade: band.grade, remark: band.remark };
 }
 

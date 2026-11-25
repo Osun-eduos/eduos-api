@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.1] - 2026-11-25
+
+### Added
+- Per-term choice of senior secondary grading: the WAEC scale (A1 to F9, default) or A to F. It cannot change once that term's SSS results are released.
+
 ## [0.4.0] - 2026-11-24
 
 ### Added
