@@ -43,7 +43,9 @@ Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source 
 - Accounts are issued down the chain with temporary passwords; the user must set their own at first sign-in.
 - Activity log of sign-ins and account changes.
 
-Next milestones: the sync service for the Android and iOS apps (in Go, see the [languages decision](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/decisions/0001-languages-and-services.md)), SMS to parents, and the teacher registry. See the [roadmap](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/roadmap.md).
+The mobile apps sync through [eduos-sync](https://github.com/Osun-eduos/eduos-sync) (Go), which shares this database and applies every change through this API. Its `SyncEvent` table is defined here, because this repository owns the schema.
+
+Next milestones: the Android teacher app, SMS to parents, and the teacher registry. See the [roadmap](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/roadmap.md).
 
 ## Stack
 
@@ -117,6 +119,7 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `POST /auth/login` | `{ identifier, password }` → `{ accessToken, user }` and sets the refresh cookie |
 | `POST /auth/refresh` | New access token from the refresh cookie (rotates the cookie) |
 | `POST /auth/logout` | Revokes the refresh token |
+| `POST /auth/login`, `/auth/refresh`, `/auth/logout` with `X-Client: mobile` | For the mobile apps: the refresh token is returned in, and sent back in, the JSON body (`refreshToken`) instead of a cookie |
 | `POST /auth/change-password` | `{ currentPassword, newPassword }`; required first if `mustChangePassword` |
 | `GET /auth/me` | The signed-in user |
 | `GET /users`, `GET /users/:id` | Accounts the caller may see; filters `role`, `schoolId`, `q` |

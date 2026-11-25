@@ -441,3 +441,24 @@ model ReportRemark {
 
   @@unique([studentId, termId])
 }
+
+enum SyncStatus {
+  APPLIED
+  REJECTED
+}
+
+/// A change sent from a phone, recorded once by the sync service so a retried upload is never applied twice.
+/// Written only by eduos-sync; the client generates the id.
+model SyncEvent {
+  id         String     @id @db.Uuid
+  userId     String     @db.Uuid
+  deviceId   String
+  type       String
+  occurredAt DateTime
+  receivedAt DateTime   @default(now())
+  status     SyncStatus
+  httpStatus Int
+  result     Json?
+
+  @@index([userId, receivedAt])
+}

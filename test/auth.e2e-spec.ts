@@ -196,6 +196,22 @@ describe('Accounts and sign-in (e2e)', () => {
     await http().post('/auth/refresh').set('Cookie', c2).expect(401);
   });
 
+  it('gives native apps the refresh token in the body instead of a cookie', async () => {
+    const mobile = () => ({ 'X-Client': 'mobile' });
+    const res = await http().post('/auth/login').set(mobile()).send({ identifier: 'principal@omss.test', password: 'Principal2026!' }).expect(200);
+    expect(cookieFrom(res)).toBeUndefined();
+    expect(res.body.refreshToken).toEqual(expect.any(String));
+    expect(res.body.accessToken).toEqual(expect.any(String));
+    const r2 = await http().post('/auth/refresh').set(mobile()).send({ refreshToken: res.body.refreshToken }).expect(200);
+    expect(r2.body.refreshToken).not.toBe(res.body.refreshToken);
+    expect(cookieFrom(r2)).toBeUndefined();
+    await http().post('/auth/refresh').set(mobile()).send({}).expect(401);
+    await http().post('/auth/logout').set(mobile()).send({ refreshToken: r2.body.refreshToken }).expect(204);
+    await http().post('/auth/refresh').set(mobile()).send({ refreshToken: r2.body.refreshToken }).expect(401);
+    // A body token is ignored by the cookie-based web flow.
+    await http().post('/auth/refresh').send({ refreshToken: res.body.refreshToken }).expect(401);
+  });
+
   it('blocks sign-in for deactivated accounts and schools', async () => {
     await http().patch(`/users/${teacherId}`).set('Authorization', `Bearer ${schoolAdmin}`).send({ isActive: false }).expect(200);
     const blocked = await login('tunde@omss.test', 'Teacher2027!').expect(403);

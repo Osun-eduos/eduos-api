@@ -1,17 +1,17 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ClassLevel, Role } from '@prisma/client';
-import { IsEnum } from 'class-validator';
+import { IsEnum, IsOptional } from 'class-validator';
 import { Request } from 'express';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser, Roles } from '../common/decorators';
-import { CREDIT_MARK, GRADING, PASS_MARK } from '../common/results';
+import { CREDIT_MARK, GRADING, PASS_MARK, SUBJECTS } from '../common/results';
 import { AddSubjectDto, ClassTermQuery, ReleaseDto, ReturnDto, SaveRemarksDto, SaveScoresDto, SetTeacherDto, SheetQuery, TermQuery } from './dto';
 import { ResultsService } from './results.service';
 import { SheetsService } from './sheets.service';
 import { SubjectsService } from './subjects.service';
 
 class LevelQuery {
-  @IsEnum(ClassLevel) level!: ClassLevel;
+  @IsOptional() @IsEnum(ClassLevel) level?: ClassLevel;
 }
 
 const STAFF = [Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.SCHOOL_ADMIN, Role.TEACHER];
@@ -27,7 +27,7 @@ export class ResultsController {
   // Subjects
   @Get('subjects')
   catalogue(@Query() q: LevelQuery) {
-    return this.subjects.catalogue(q.level);
+    return q.level ? this.subjects.catalogue(q.level) : SUBJECTS.map((s) => ({ code: s.code, name: s.name }));
   }
 
   @Get('grading')

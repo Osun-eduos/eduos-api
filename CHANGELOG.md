@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0] - 2026-11-25
+
+### Added
+- Sign-in for native apps: with `X-Client: mobile`, login, refresh and logout exchange the refresh token in the request and response body instead of a cookie.
+- `SyncEvent` table, written by [eduos-sync](https://github.com/Osun-eduos/eduos-sync) to apply each change from a phone once.
+- `GET /subjects` without a level returns the whole subject list.
+
 ## [0.4.1] - 2026-11-25
 
 ### Added
