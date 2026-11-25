@@ -164,6 +164,16 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `GET /audit` | Activity log |
 | `GET /health` | Liveness and database check |
 
+## Deploy
+
+[`render.yaml`](render.yaml) puts the database, this API, [eduos-sync](https://github.com/Osun-eduos/eduos-sync) and [eduos-web](https://github.com/Osun-eduos/eduos-web) online on Render in one step. Follow the [deployment guide](https://github.com/Osun-eduos/osun-eduos/blob/main/docs/deployment.md).
+
+The Docker image runs [`scripts/start.sh`](scripts/start.sh) on start-up:
+
+1. It applies database migrations.
+2. If `SEED_ADMIN_EMAIL` (or `SEED_ADMIN_PHONE`) is set and no Ministry administrator exists yet, it creates one with `SEED_ADMIN_NAME` and the temporary password `SEED_ADMIN_PASSWORD`.
+3. It starts the API.
+
 ## Security notes
 
 - Passwords are hashed with Argon2id. Wrong-password responses are identical whether or not the account exists.

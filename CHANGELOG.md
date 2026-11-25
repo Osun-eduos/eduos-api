@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1] - 2026-11-25
+
+### Added
+- `render.yaml` Blueprint for a pilot on Render: database, API, sync service and web app.
+- The container creates the first Ministry administrator on start when `SEED_ADMIN_*` values are set and none exists yet.
+
+### Fixed
+- The production image now includes the Prisma CLI, so migrations on start use the pinned version instead of downloading one.
+
 ## [0.5.0] - 2026-11-25
 
 ### Added
