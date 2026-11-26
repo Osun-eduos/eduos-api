@@ -6,10 +6,11 @@ import { ResultsService } from './results.service';
 import { SheetsService } from './sheets.service';
 import { SubjectsService } from './subjects.service';
 import { TermsController } from './terms.controller';
+import { ExamsController } from './exams.controller';
 
 @Module({
   imports: [StudentsModule, SmsModule],
-  controllers: [TermsController, ResultsController],
+  controllers: [TermsController, ResultsController, ExamsController],
   providers: [SubjectsService, SheetsService, ResultsService],
   exports: [ResultsService],
 })

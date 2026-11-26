@@ -8,7 +8,10 @@ import { isoDate, parseDate, today } from '../common/dates';
 import { isOversight, seesLga } from '../common/scope';
 import { currentSession, requireCurrentSession } from '../common/session';
 import { holidayOn } from '../common/holidays';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SmsService } from '../sms/sms.service';
+import { LEVELS_FOR_SCHOOL } from '../common/classes';
 import { UsersService } from '../users/users.service';
 import { EnrolStudentDto, GuardianDto, ListStudentsQuery, UpdateStudentDto, WithdrawDto } from './dto';
 
@@ -43,7 +46,13 @@ export function studentSummary(s: SummaryRow) {
 
 @Injectable()
 export class StudentsService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly users: UsersService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly users: UsersService,
+    private readonly sms: SmsService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private async sessionId() {
     return (await currentSession(this.prisma))?.id ?? null;
@@ -135,23 +144,40 @@ export class StudentsService {
       }
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    if (dto.entryLevel && !LEVELS_FOR_SCHOOL[school.level].includes(dto.entryLevel)) throw new BadRequestException('Choose a class level your school teaches.');
+    const result = await this.prisma.$transaction(async (tx) => {
       const session = dto.classArmId ? await requireCurrentSession(tx) : await currentSession(tx);
-      if (dto.classArmId) await this.checkClass(tx, school.id, dto.classArmId, session!.id);
+      const cls = dto.classArmId ? await this.checkClass(tx, school.id, dto.classArmId, session!.id) : null;
       const student = await tx.student.create({
         data: {
           learnerId: await nextLearnerId(tx),
           surname: dto.surname, firstName: dto.firstName, middleName: dto.middleName, sex: dto.sex, dateOfBirth: dob,
-          stateOfOrigin: dto.stateOfOrigin, lgaOfOrigin: dto.lgaOfOrigin, homeAddress: dto.homeAddress, currentSchoolId: school.id,
+          stateOfOrigin: dto.stateOfOrigin, lgaOfOrigin: dto.lgaOfOrigin, homeAddress: dto.homeAddress, previousSchool: dto.previousSchool, currentSchoolId: school.id,
         },
       });
-      await tx.enrolment.create({ data: { studentId: student.id, schoolId: school.id, admissionNumber: await nextAdmissionNumber(tx, school.id), admittedOn } });
+      const admissionNumber = await nextAdmissionNumber(tx, school.id);
+      await tx.enrolment.create({ data: { studentId: student.id, schoolId: school.id, admissionNumber, admittedOn, entryLevel: cls?.level ?? dto.entryLevel ?? null } });
       if (dto.classArmId) await tx.classPlacement.create({ data: { studentId: student.id, classArmId: dto.classArmId, sessionId: session!.id } });
       await this.audit.record({ actorId: actor.id, action: 'student.enrolled', targetType: 'student', targetId: student.id, schoolId: school.id, meta: { learnerId: student.learnerId }, ip }, tx);
       const parent = dto.guardian ? await this.addGuardian(tx, actor, student.id, dto.guardian, ip) : null;
       const row = await tx.student.findUniqueOrThrow({ where: { id: student.id }, include: summaryInclude(session?.id ?? null) });
       return { student: studentSummary(row), parent };
     });
+    // Telling the guardian must never undo the enrolment.
+    await this.welcomeGuardians(school, result.student).catch((e) => console.error('Guardian could not be told about the enrolment', e));
+    return result;
+  }
+
+  /** The guardian gets the admission number and learner ID by text, and in their inbox if they use the app. */
+  private async welcomeGuardians(school: { id: string; name: string }, st: ReturnType<typeof studentSummary>) {
+    const links = await this.notifications.parentsOf([st.id]);
+    const child = `${st.firstName} ${st.surname}`;
+    const body = `${child} is now enrolled at ${school.name}. Admission no. ${st.admissionNumber}, learner ID ${st.learnerId}.`;
+    for (const l of links) {
+      await this.notifications.notify([l.parent.id], { kind: 'ENROLMENT', title: 'Enrolment confirmed', body, link: `/students/${st.id}`, studentId: st.id, key: `enrolled:${st.id}:${school.id}` });
+    }
+    const texts = links.filter((l) => l.parent.phone).map((l) => ({ to: l.parent.phone!, parentId: l.parent.id, studentId: st.id, schoolId: school.id, body: `${body} - Osun EduOS` }));
+    if (texts.length) await this.sms.queue('ENROLMENT', texts);
   }
 
   async list(actor: AuthUser, q: ListStudentsQuery) {
@@ -184,7 +210,32 @@ export class StudentsService {
     }
     if (isOversight(actor) && !q.schoolId && !q.q?.trim()) throw new BadRequestException('Search by name or learner ID, or choose a school.');
     const rows = await this.prisma.student.findMany({ where: { AND: and }, include: summaryInclude(sid), orderBy: [{ surname: 'asc' }, { firstName: 'asc' }], take: 1000 });
-    return rows.map(studentSummary);
+    const out = rows.map(studentSummary);
+    if (q.stats !== 'true' || !rows.length) return out;
+    const stats = await this.termStats(rows.map((r) => r.id), actor.role === Role.SCHOOL_ADMIN ? actor.schoolId : null);
+    return out.map((r) => ({ ...r, ...(stats.get(r.id) ?? { attendanceRate: null, termAverage: null, transferredIn: false }) }));
+  }
+
+  /** This term's attendance rate and average subject score per student, and whether they transferred in. */
+  private async termStats(ids: string[], schoolId: string | null) {
+    const term = await this.prisma.term.findFirst({ where: { isCurrent: true } });
+    const out = new Map<string, { attendanceRate: number | null; termAverage: number | null; transferredIn: boolean }>();
+    for (const id of ids) out.set(id, { attendanceRate: null, termAverage: null, transferredIn: false });
+    if (term) {
+      const att = await this.prisma.$queryRaw<{ studentId: string; marks: bigint; here: bigint }[]>`
+        SELECT m."studentId", count(*) AS marks, count(*) FILTER (WHERE m.status IN ('PRESENT', 'LATE')) AS here
+        FROM "AttendanceMark" m JOIN "AttendanceRegister" r ON r.id = m."registerId"
+        WHERE m."studentId" = ANY(${ids}::uuid[]) AND r.date BETWEEN ${term.startDate} AND ${term.endDate}
+        GROUP BY m."studentId"`;
+      for (const a of att) out.get(a.studentId)!.attendanceRate = Number(a.marks) ? Math.round((Number(a.here) / Number(a.marks)) * 1000) / 10 : null;
+      const sc = await this.prisma.score.groupBy({ by: ['studentId'], where: { studentId: { in: ids }, total: { not: null }, sheet: { termId: term.id } }, _avg: { total: true } });
+      for (const x of sc) out.get(x.studentId)!.termAverage = x._avg.total === null ? null : Math.round(x._avg.total * 10) / 10;
+    }
+    if (schoolId) {
+      const tr = await this.prisma.transfer.findMany({ where: { studentId: { in: ids }, toSchoolId: schoolId, status: 'ACCEPTED' }, select: { studentId: true } });
+      for (const t of tr) out.get(t.studentId)!.transferredIn = true;
+    }
+    return out;
   }
 
   async get(actor: AuthUser, id: string) {
@@ -207,6 +258,7 @@ export class StudentsService {
       ...studentSummary(s),
       stateOfOrigin: s.stateOfOrigin,
       lgaOfOrigin: s.lgaOfOrigin,
+      previousSchool: staff ? s.previousSchool : undefined,
       homeAddress: staff ? s.homeAddress : undefined,
       guardians: s.guardians
         .filter((g) => staff || g.parentId === actor.id)
@@ -228,6 +280,7 @@ export class StudentsService {
       stateOfOrigin: dto.stateOfOrigin === undefined ? undefined : dto.stateOfOrigin || null,
       lgaOfOrigin: dto.lgaOfOrigin === undefined ? undefined : dto.lgaOfOrigin || null,
       homeAddress: dto.homeAddress === undefined ? undefined : dto.homeAddress || null,
+      previousSchool: dto.previousSchool === undefined ? undefined : dto.previousSchool || null,
       dateOfBirth: dto.dateOfBirth ? this.validateDob(dto.dateOfBirth) : undefined,
     };
     await this.prisma.student.update({ where: { id }, data });

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
 import { Transform } from 'class-transformer';
@@ -31,6 +31,12 @@ class ListQuery {
   @IsOptional() @IsUUID() schoolId?: string;
   @IsOptional() @IsIn(['GOOD', 'FAIR', 'POOR', 'CRITICAL']) overall?: string;
   @IsOptional() @IsIn(['true', 'false']) mine?: string;
+  @IsOptional() @IsIn(['URGENT', 'PLANNED', 'RESOLVED', 'NONE']) followUp?: string;
+}
+
+class FollowUpDto {
+  @IsIn(['URGENT', 'PLANNED', 'RESOLVED']) status: string;
+  @Transform(trim) @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 
 @Controller('inspections')
@@ -46,6 +52,18 @@ export class InspectionsController {
   @Get()
   list(@CurrentUser() me: AuthUser, @Query() q: ListQuery) {
     return this.inspections.list(me, q);
+  }
+
+  @Get('standards')
+  @Roles(...OVERSIGHT_ROLES)
+  standards(@CurrentUser() me: AuthUser) {
+    return this.inspections.standards(me);
+  }
+
+  @Patch(':id/follow-up')
+  @Roles(Role.MINISTRY_ADMIN, Role.MINISTRY_OFFICER, Role.LGA_OFFICER)
+  followUp(@CurrentUser() me: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: FollowUpDto, @Req() req: Request) {
+    return this.inspections.setFollowUp(me, id, dto, req.ip ?? null);
   }
 
   @Get('photos/:photoId')

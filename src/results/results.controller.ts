@@ -1,15 +1,20 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ClassLevel, Role } from '@prisma/client';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsUUID } from 'class-validator';
 import { Request } from 'express';
 import { AuthUser } from '../common/auth-user';
-import { CurrentUser, Roles } from '../common/decorators';
-import { CREDIT_MARK, GRADING, PASS_MARK, SUBJECTS } from '../common/results';
+import { CurrentUser, Public, Roles } from '../common/decorators';
+import { Throttle } from '@nestjs/throttler';
+import { SUBJECTS } from '../common/results';
 import { OVERSIGHT_ROLES } from '../common/roles';
 import { AddSubjectDto, ClassTermQuery, ReleaseDto, ReturnDto, SaveRemarksDto, SaveScoresDto, SetTeacherDto, SheetQuery, TermQuery } from './dto';
 import { ResultsService } from './results.service';
 import { SheetsService } from './sheets.service';
 import { SubjectsService } from './subjects.service';
+
+class ApproveAllDto {
+  @IsOptional() @IsUUID() classId?: string;
+}
 
 class LevelQuery {
   @IsOptional() @IsEnum(ClassLevel) level?: ClassLevel;
@@ -29,11 +34,6 @@ export class ResultsController {
   @Get('subjects')
   catalogue(@Query() q: LevelQuery) {
     return q.level ? this.subjects.catalogue(q.level) : SUBJECTS.map((s) => ({ code: s.code, name: s.name }));
-  }
-
-  @Get('grading')
-  grading() {
-    return { scales: GRADING, passMark: PASS_MARK, creditMark: CREDIT_MARK };
   }
 
   @Get('classes/:id/subjects')
@@ -93,6 +93,13 @@ export class ResultsController {
     return this.sheets.submit(me, id, req.ip ?? null);
   }
 
+  @Post('scoresheets/approve-all')
+  @Roles(Role.SCHOOL_ADMIN)
+  @HttpCode(200)
+  approveAll(@CurrentUser() me: AuthUser, @Body() dto: ApproveAllDto, @Req() req: Request) {
+    return this.sheets.approveAll(me, dto.classId, req.ip ?? null);
+  }
+
   @Post('scoresheets/:id/approve')
   @Roles(Role.SCHOOL_ADMIN)
   @HttpCode(200)
@@ -127,6 +134,27 @@ export class ResultsController {
     return this.results.release(me, dto.classId, req.ip ?? null);
   }
 
+  @Get('results/analysis')
+  @Roles(...STAFF)
+  analysis(@CurrentUser() me: AuthUser, @Query() q: ClassTermQuery) {
+    return this.results.analysis(me, q.classId, q.termId);
+  }
+
+  @Get('results/submissions')
+  @Roles(...OVERSIGHT_ROLES)
+  submissions(@CurrentUser() me: AuthUser, @Query() q: TermQuery) {
+    return this.results.submissions(me, q.termId);
+  }
+
+  /** Anyone holding a printed report card can check its code; no sign-in needed. */
+  @Public()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get('verify/:code')
+  verify(@Param('code') code: string) {
+    if (!/^[A-Za-z0-9-]{6,20}$/.test(code)) throw new NotFoundException('No report card has this code. Check it was typed correctly.');
+    return this.results.verify(code);
+  }
+
   @Get('results/summary')
   @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
   summary(@CurrentUser() me: AuthUser, @Query() q: TermQuery) {
@@ -137,6 +165,11 @@ export class ResultsController {
   @Get('report-cards/:studentId/terms')
   reportCardTerms(@CurrentUser() me: AuthUser, @Param('studentId', ParseUUIDPipe) id: string) {
     return this.results.reportCardTerms(me, id);
+  }
+
+  @Get('report-cards/:studentId/progress')
+  progress(@CurrentUser() me: AuthUser, @Param('studentId', ParseUUIDPipe) id: string) {
+    return this.results.progress(me, id);
   }
 
   @Get('report-cards/:studentId')

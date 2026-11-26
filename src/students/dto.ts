@@ -1,4 +1,4 @@
-import { Sex, StudentStatus } from '@prisma/client';
+import { ClassLevel, Sex, StudentStatus } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateIf, ValidateNested,
@@ -68,9 +68,20 @@ class StudentDetails {
   @IsString()
   @MaxLength(250)
   homeAddress?: string;
+
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  previousSchool?: string;
 }
 
 export class EnrolStudentDto extends StudentDetails {
+  /** The class level the student joins at, so they can be allocated to an arm later. Taken from the class if one is given. */
+  @IsOptional()
+  @IsEnum(ClassLevel)
+  entryLevel?: ClassLevel;
+
   @IsOptional()
   @Matches(DATE, { message: 'Admission date must be YYYY-MM-DD.' })
   admittedOn?: string;
@@ -99,6 +110,7 @@ export class UpdateStudentDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsOptional() @IsString() @MaxLength(40) stateOfOrigin?: string;
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsOptional() @IsString() @MaxLength(60) lgaOfOrigin?: string;
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsOptional() @IsString() @MaxLength(250) homeAddress?: string;
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsOptional() @IsString() @MaxLength(120) previousSchool?: string;
 }
 
 export class PlaceDto {
@@ -125,4 +137,6 @@ export class ListStudentsQuery {
   @IsOptional() @IsString() @MaxLength(100) q?: string;
   @IsOptional() @IsEnum(StudentStatus) status?: StudentStatus;
   @IsOptional() @IsIn(['true', 'false']) unplaced?: string;
+  /** Adds this term's attendance rate and average score to each row. */
+  @IsOptional() @IsIn(['true', 'false']) stats?: string;
 }

@@ -117,9 +117,12 @@ const weekday = ![0, 6].includes(lagos.getUTCDay());
     teacher.put('/attendance/register', { classId: cls, date: today, marks: Object.entries(marks).map(([studentId, status]) => ({ studentId, status })) }).expect(200);
 
   it('texts a parent with a phone once when their child is marked absent today', async () => {
+    // Enrolment confirmations are covered in parity.e2e-spec; set them aside here.
+    await prisma.smsMessage.deleteMany({ where: { kind: 'ENROLMENT' } });
+    await prisma.notification.deleteMany({ where: { kind: 'ENROLMENT' } });
     await register({ [ada]: 'ABSENT', [bayo]: 'ABSENT', [chi]: 'ABSENT' });
     await register({ [ada]: 'ABSENT', [bayo]: 'ABSENT', [chi]: 'ABSENT' });
-    expect(await prisma.smsMessage.count()).toBe(1); // Bayo's parent has no phone; Chi has no parent.
+    expect(await prisma.smsMessage.count({ where: { kind: 'ABSENCE' } })).toBe(1); // Bayo's parent has no phone; Chi has no parent.
     // Both parents see it in their inbox, phone or not, once.
     const inbox = await prisma.notification.findMany({ where: { kind: 'ABSENCE' }, include: { user: true }, orderBy: { title: 'asc' } });
     expect(inbox.map((n) => [n.user.fullName, n.title])).toEqual([['Mrs Ola', 'Ada was absent today'], ['Mr Email Only', 'Bayo was absent today']]);

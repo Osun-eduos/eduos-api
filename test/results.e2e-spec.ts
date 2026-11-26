@@ -254,15 +254,16 @@ describe('Results (e2e)', () => {
     expect(rel.body.released.by).toBe('Principal Adewale');
     await school.post('/results/release', { classId: cls }).expect(400);
 
-    // The parent is told in their inbox and by text, once.
+    // The parent is told in their inbox and by text, once (after the enrolment notice they already had).
     const inbox = (await parent.get('/notifications').expect(200)).body;
-    expect(inbox.unread).toBe(1);
+    expect(inbox.unread).toBe(2);
+    expect(inbox.items.filter((i: { kind: string }) => i.kind === 'RESULTS')).toHaveLength(1);
     expect(inbox.items[0]).toMatchObject({ kind: 'RESULTS', title: 'Report card ready', link: `/report-card/${kemi}?term=${term1}`, read: false });
     expect(inbox.items[0].body).toMatch(/First term report card for .* is ready/);
     const texts = await prisma.smsMessage.findMany({ where: { kind: 'RESULTS' } });
     expect(texts.map((t) => t.to)).toEqual(['+2348061112233']);
     expect(texts[0].body).toMatch(/report card is ready\. Sign in to Osun EduOS/);
-    expect((await parent.post('/notifications/read', {}).expect(201)).body).toEqual({ updated: 1, unread: 0 });
+    expect((await parent.post('/notifications/read', {}).expect(201)).body).toEqual({ updated: 2, unread: 0 });
 
     const terms = await parent.get(`/report-cards/${kemi}/terms`).expect(200);
     expect(terms.body).toEqual([expect.objectContaining({ termId: term1, name: 'First term', className: 'JSS 1A', released: true })]);

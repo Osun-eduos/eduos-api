@@ -25,6 +25,11 @@ class CreateClassDto {
   classTeacherId?: string;
 }
 
+class AllocateDto {
+  @IsEnum(ClassLevel)
+  level!: ClassLevel;
+}
+
 class UpdateClassDto {
   @IsOptional()
   @IsInt()
@@ -52,6 +57,19 @@ export class ClassesController {
   @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
   levels(@CurrentUser() me: AuthUser, @Query('schoolId') schoolId?: string) {
     return this.classes.levels(me, schoolId);
+  }
+
+  @Get('allocation')
+  @Roles(Role.SCHOOL_ADMIN)
+  allocation(@CurrentUser() me: AuthUser) {
+    return this.classes.allocation(me);
+  }
+
+  @Post('auto-allocate')
+  @Roles(Role.SCHOOL_ADMIN)
+  @HttpCode(200)
+  autoAllocate(@CurrentUser() me: AuthUser, @Body() dto: AllocateDto, @Req() req: Request) {
+    return this.classes.autoAllocate(me, dto.level, req.ip ?? null);
   }
 
   @Post()

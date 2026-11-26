@@ -40,10 +40,18 @@ export class InspectionsService {
   }
 
   private view(r: Row, full = false) {
-    const { overall, issues } = assess(r.answers as Answers);
+    // Answers are checked on the way in; records imported from elsewhere may be partial, so fall back to the stored grade.
+    let judged: ReturnType<typeof assess>;
+    try {
+      judged = assess(r.answers as Answers);
+    } catch {
+      judged = { overall: r.overall as ReturnType<typeof assess>['overall'], issues: [] };
+    }
+    const { overall, issues } = judged;
     return {
       id: r.id, clientId: r.clientId, school: r.school, inspector: r.inspector, visitedOn: isoDate(r.visitedOn), overall, createdAt: r.createdAt,
       issues: full ? issues : issues.slice(0, 3), issueCount: issues.length, photoCount: r.photos.length, notes: r.notes,
+      followUp: r.followUp ? { status: r.followUp, note: r.followUpNote, at: r.followUpAt } : null,
       ...(full ? { template: r.template, answers: r.answers, photos: r.photos.map((p) => ({ id: p.id, clientId: p.clientId, section: p.section, caption: p.caption, bytes: p.bytes })) } : {}),
     };
   }
@@ -58,7 +66,7 @@ export class InspectionsService {
     return r;
   }
 
-  async list(actor: AuthUser, q: { schoolId?: string; overall?: string; mine?: string }) {
+  async list(actor: AuthUser, q: { schoolId?: string; overall?: string; mine?: string; followUp?: string }) {
     const where: Prisma.InspectionWhereInput = {};
     if (actor.role === Role.SCHOOL_ADMIN) where.schoolId = actor.schoolId!;
     else if (isOversight(actor)) where.school = schoolsInScope(actor);
@@ -66,6 +74,7 @@ export class InspectionsService {
     if (q.schoolId) where.schoolId = actor.role === Role.SCHOOL_ADMIN ? actor.schoolId! : q.schoolId;
     if (q.overall) where.overall = q.overall;
     if (q.mine === 'true') where.inspectorId = actor.id;
+    if (q.followUp) where.followUp = q.followUp === 'NONE' ? null : q.followUp;
     const rows = await this.prisma.inspection.findMany({ where, include, orderBy: [{ visitedOn: 'desc' }, { createdAt: 'desc' }], take: 300 });
     return rows.map((r) => this.view(r));
   }
@@ -144,5 +153,75 @@ export class InspectionsService {
     if (!p || !this.canSee(actor, p.inspection.school)) throw new NotFoundException('Photo not found.');
     const body = p.storageKey === 'db' ? Buffer.from(p.data ?? []) : await this.storage.get(p.storageKey);
     return { body, contentType: p.contentType };
+  }
+
+  /** The Ministry or LGA marks what happens next after a report: urgent, planned, or resolved. */
+  async setFollowUp(actor: AuthUser, id: string, dto: { status: string; note?: string }, ip: string | null) {
+    const r = await this.load(actor, id);
+    if (!isOversight(actor)) throw new ForbiddenException('Only the Ministry or the LGA can set the follow-up.');
+    await this.prisma.inspection.update({ where: { id }, data: { followUp: dto.status, followUpNote: dto.note ?? null, followUpById: actor.id, followUpAt: new Date() } });
+    await this.audit.record({ actorId: actor.id, action: 'inspection.follow_up', targetType: 'inspection', targetId: id, schoolId: r.schoolId, meta: { status: dto.status, note: dto.note ?? null }, ip });
+    return this.get(actor, id);
+  }
+
+  /**
+   * Minimum standards by LGA, from each school's latest inspection: water, working toilets with some for girls,
+   * power, a computer room, a library and a laboratory. Also classrooms against pupils (one room per 40) and how
+   * reports are being followed up.
+   */
+  async standards(actor: AuthUser) {
+    if (!isOversight(actor)) throw new ForbiddenException('You do not have access to this.');
+    const schools = await this.prisma.school.findMany({
+      where: { isActive: true, ...schoolsInScope(actor) },
+      select: {
+        id: true, lga: true, classrooms: true,
+        inspections: { orderBy: [{ visitedOn: 'desc' }, { createdAt: 'desc' }], take: 1, select: { answers: true, overall: true, followUp: true } },
+        _count: { select: { students: { where: { status: 'ACTIVE' } } } },
+      },
+    });
+    type Row = { lga: string; schools: number; inspected: number; water: number; toilets: number; power: number; ict: number; library: number; lab: number; classrooms: number; usable: number; pupils: number; needed: number; shortfall: number; schoolsShort: number; needsAction: number; urgent: number; planned: number; resolved: number; noFollowUp: number };
+    const blank = (lga: string): Row => ({ lga, schools: 0, inspected: 0, water: 0, toilets: 0, power: 0, ict: 0, library: 0, lab: 0, classrooms: 0, usable: 0, pupils: 0, needed: 0, shortfall: 0, schoolsShort: 0, needsAction: 0, urgent: 0, planned: 0, resolved: 0, noFollowUp: 0 });
+    const by = new Map<string, Row>();
+    const state = blank('Osun State');
+    for (const s of schools) {
+      if (!by.has(s.lga)) by.set(s.lga, blank(s.lga));
+      const rows = [by.get(s.lga)!, state];
+      const last = s.inspections[0];
+      const pupils = s._count.students;
+      const a = (last?.answers as Answers | undefined)?.classrooms ? (last!.answers as Answers) : undefined;
+      const usable = a ? (a.classrooms.usable as number) : null;
+      const rooms = a ? (a.classrooms.total as number) : s.classrooms;
+      const needed = Math.ceil(pupils / 40);
+      for (const r of rows) {
+        r.schools++;
+        r.pupils += pupils;
+        r.needed += needed;
+        if (rooms != null) r.classrooms += rooms;
+        if (!a || !last) continue;
+        r.inspected++;
+        r.usable += usable!;
+        if (usable! < needed) { r.shortfall += needed - usable!; r.schoolsShort++; }
+        if (a.water.source !== 'NONE' && a.water.working) r.water++;
+        if ((a.toilets.working as number) > 0 && (a.toilets.girls as number) > 0) r.toilets++;
+        if (a.power.source !== 'NONE') r.power++;
+        if (a.facilities?.ict) r.ict++;
+        if (a.facilities?.library) r.library++;
+        if (a.facilities?.laboratory) r.lab++;
+        if (last.overall === 'POOR' || last.overall === 'CRITICAL') {
+          r.needsAction++;
+          if (last.followUp === 'URGENT') r.urgent++;
+          else if (last.followUp === 'PLANNED') r.planned++;
+          else if (last.followUp === 'RESOLVED') r.resolved++;
+          else r.noFollowUp++;
+        }
+      }
+    }
+    const pct = (n: number, d: number) => (d ? Math.round((n / d) * 1000) / 10 : null);
+    const out = (r: Row) => ({
+      ...r,
+      rates: { water: pct(r.water, r.inspected), toilets: pct(r.toilets, r.inspected), power: pct(r.power, r.inspected), ict: pct(r.ict, r.inspected), library: pct(r.library, r.inspected), lab: pct(r.lab, r.inspected) },
+      pupilsPerClassroom: r.usable ? Math.round(r.pupils / r.usable) : null,
+    });
+    return { standards: ['water', 'toilets', 'power', 'ict', 'library', 'lab'], pupilsPerClassroom: 40, state: out(state), lgas: [...by.values()].sort((a, b) => a.lga.localeCompare(b.lga)).map(out) };
   }
 }

@@ -1,17 +1,39 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ClassArm, Prisma, Role, SheetStatus } from '@prisma/client';
+import { ClassArm, ClassLevel, Prisma, Role, SheetStatus } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
-import { className } from '../common/classes';
-import { isoDate } from '../common/dates';
+import { className, LEVEL_ORDER, levelLabel } from '../common/classes';
+import { isoDate, today } from '../common/dates';
 import { isOversight, schoolsInScope, seesLga } from '../common/scope';
 import { Component, CREDIT_MARK, gradeFor, ordinal, PASS_MARK, rank, round1, scaleFor, subjectName, termName } from '../common/results';
 import { currentTerm } from '../common/session';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SmsService } from '../sms/sms.service';
+import { GradingService } from '../grading/grading.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudentsService } from '../students/students.service';
 import { Marks, SheetsService } from './sheets.service';
+
+/** Report card codes look like OSE-7K2Q-M4XP; the letters avoid ones easily confused (0/O, 1/I/L). */
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export function newReportCode() {
+  const pick = () => Array.from(randomBytes(4), (b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
+  return `OSE-${pick()}-${pick()}`;
+}
+
+/**
+ * What the third-term report says about moving up. A pass average reads as promoted; anything else is left to the
+ * school to decide, so the system never tells a parent their child has been held back.
+ */
+export function promotion(level: ClassLevel, average: number | null) {
+  if (average === null) return null;
+  if (average < PASS_MARK) return 'Promotion to be decided by the school';
+  if (level === 'PRIMARY_6') return 'Completed primary school';
+  if (level === 'JSS_3') return 'Completed junior secondary';
+  if (level === 'SSS_3') return 'Completed senior secondary';
+  return `Promoted to ${levelLabel(LEVEL_ORDER[LEVEL_ORDER.indexOf(level) + 1])}`;
+}
 
 type TermRow = Prisma.TermGetPayload<{ include: { session: true } }>;
 const fullName = (s: { surname: string; firstName: string; middleName: string | null }) => [s.surname, s.firstName, s.middleName].filter(Boolean).join(' ');
@@ -26,6 +48,7 @@ export class ResultsService {
     private readonly students: StudentsService,
     private readonly notifications: NotificationsService,
     private readonly sms: SmsService,
+    private readonly grading: GradingService,
   ) {}
 
   private async term(termId?: string): Promise<TermRow> {
@@ -194,6 +217,27 @@ export class ResultsService {
     return out.sort((a, b) => b.session.localeCompare(a.session) || b.name.localeCompare(a.name));
   }
 
+  /** A student's average in each released term, oldest first, for the parent portal's progress chart. */
+  async progress(actor: AuthUser, studentId: string) {
+    await this.students.assertCanView(actor, studentId);
+    const placements = await this.prisma.classPlacement.findMany({
+      where: { studentId },
+      include: { classArm: { include: { results: { include: { term: { include: { session: true } } } } } } },
+    });
+    const out: { termId: string; term: string; session: string; className: string; average: number | null; position: string | null; startDate: Date }[] = [];
+    for (const p of placements) {
+      for (const r of p.classArm.results) {
+        const data = await this.compute(p.classArm, r.term, true);
+        const me = data.students.find((x) => x.id === studentId);
+        out.push({
+          termId: r.termId, term: termName(r.term.number), session: r.term.session.name, className: className(p.classArm.level, p.classArm.arm),
+          average: me?.average ?? null, position: r.term.showPositions && me?.position ? `${ordinal(me.position)} of ${data.ranked}` : null, startDate: r.term.startDate,
+        });
+      }
+    }
+    return out.sort((a, b) => a.startDate.getTime() - b.startDate.getTime()).slice(-9).map(({ startDate: _d, ...x }) => x);
+  }
+
   async reportCard(actor: AuthUser, studentId: string, termId?: string) {
     await this.students.assertCanView(actor, studentId);
     const term = await this.term(termId);
@@ -207,6 +251,7 @@ export class ResultsService {
     const canPreview = (actor.role === Role.SCHOOL_ADMIN && c.schoolId === actor.schoolId) || (actor.role === Role.TEACHER && c.classTeacherId === actor.id);
     if (!released && !canPreview) throw new NotFoundException('This report card has not been released yet.');
 
+    await this.grading.refresh();
     const data = await this.compute(c, term, !!released);
     const me = data.students.find((s) => s.id === studentId);
     if (!me) throw new NotFoundException('This student has no results for that term.');
@@ -250,7 +295,176 @@ export class ResultsService {
       attendance: { ...att, marked: attMarked, rate: attMarked ? round1(((att.PRESENT + att.LATE) / attMarked) * 100) : null },
       remarks: { teacher: remark?.teacherRemark ?? null, principal: remark?.principalRemark ?? null },
       gradingScale: scaleFor(c.level, term.sssGrading),
+      overallGrade: me.average === null ? null : gradeFor(c.level, me.average, term.sssGrading),
+      promotion: term.number === 3 ? promotion(c.level, me.average) : null,
+      verificationCode: released ? await this.codeFor(studentId, term.id) : null,
       nextTermBegins: nextTerm ? isoDate(nextTerm.startDate) : null,
+    };
+  }
+
+  /** The report card's verification code, made the first time a released card is opened. */
+  private async codeFor(studentId: string, termId: string) {
+    const found = await this.prisma.reportCode.findUnique({ where: { studentId_termId: { studentId, termId } } });
+    if (found) return found.code;
+    for (let i = 0; i < 5; i++) {
+      const code = newReportCode();
+      try {
+        return (await this.prisma.reportCode.create({ data: { code, studentId, termId } })).code;
+      } catch (e) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+        const again = await this.prisma.reportCode.findUnique({ where: { studentId_termId: { studentId, termId } } });
+        if (again) return again.code;
+      }
+    }
+    throw new Error('Could not make a verification code.');
+  }
+
+  /** Public check of a report card code: enough to confirm a printed card matches EduOS, no contact details. */
+  async verify(code: string) {
+    const row = await this.prisma.reportCode.findUnique({ where: { code: code.trim().toUpperCase() } });
+    if (!row) throw new NotFoundException('No report card has this code. Check it was typed correctly.');
+    const term = await this.term(row.termId);
+    const placement = await this.prisma.classPlacement.findUnique({
+      where: { studentId_sessionId: { studentId: row.studentId, sessionId: term.sessionId } },
+      include: { classArm: { include: { school: { select: { id: true, name: true, code: true, lga: true, address: true } } } } },
+    });
+    const released = placement && (await this.prisma.classResult.findUnique({ where: { classArmId_termId: { classArmId: placement.classArmId, termId: term.id } } }));
+    if (!placement || !released) throw new NotFoundException('No report card has this code. Check it was typed correctly.');
+    await this.grading.refresh();
+    const c = placement.classArm;
+    const data = await this.compute(c, term, true);
+    const me = data.students.find((s) => s.id === row.studentId);
+    const student = await this.prisma.student.findUniqueOrThrow({ where: { id: row.studentId } });
+    const enrolment = await this.prisma.enrolment.findFirst({ where: { studentId: row.studentId, schoolId: c.schoolId }, orderBy: { admittedOn: 'desc' } });
+    return {
+      code: row.code,
+      student: { fullName: fullName(student), learnerId: student.learnerId, admissionNumber: enrolment?.admissionNumber ?? null },
+      school: { name: c.school.name, code: c.school.code, lga: c.school.lga },
+      class: className(c.level, c.arm),
+      term: { name: termName(term.number), session: term.session.name },
+      releasedAt: released.releasedAt,
+      average: me?.average ?? null,
+      overallGrade: me?.average != null ? gradeFor(c.level, me.average, term.sssGrading)?.grade ?? null : null,
+      position: term.showPositions && me?.position ? `${ordinal(me.position)} of ${data.ranked}` : null,
+      subjects: data.subjects.filter((s) => s.scores.has(row.studentId)).map((s) => {
+        const t = s.scores.get(row.studentId)!.total;
+        return { name: s.name, total: t, grade: gradeFor(c.level, t, term.sssGrading)?.grade ?? null };
+      }),
+    };
+  }
+
+  /**
+   * How a class did, subject by subject, with the grade spread, the class ranking and how the other arms of the same
+   * level compare. Schools and class teachers see it live as scores come in; oversight users see released results.
+   */
+  async analysis(actor: AuthUser, classId: string, termId?: string) {
+    const { c, term } = await this.classAccess(actor, classId, termId);
+    await this.grading.refresh();
+    const approvedOnly = isOversight(actor);
+    const scale = scaleFor(c.level, term.sssGrading);
+    const data = await this.compute(c, term, approvedOnly);
+    const students = data.students.length;
+    const subjects = data.subjects.map((s) => {
+      const totals = [...s.scores.values()].map((x) => x.total).filter((t): t is number => t !== null);
+      const dist = Object.fromEntries(scale.map((b) => [b.grade, 0]));
+      for (const t of totals) dist[gradeFor(c.level, t, term.sssGrading)!.grade]++;
+      return {
+        code: s.code, name: s.name, teacher: s.teacher?.fullName ?? null, status: s.status, scored: totals.length, students,
+        mean: s.average, highest: s.highest, lowest: s.lowest,
+        passRate: totals.length ? round1((totals.filter((t) => t >= PASS_MARK).length / totals.length) * 100) : null,
+        distribution: dist,
+      };
+    });
+    const ranked = data.students.filter((x) => x.average !== null).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    const averages = ranked.map((x) => x.average!);
+    const withMean = subjects.filter((x) => x.mean !== null);
+    const weakest = withMean.length ? withMean.reduce((a, b) => (b.mean! < a.mean! ? b : a)) : null;
+
+    // Other arms of the same level at the school, this session.
+    const arms = await this.prisma.classArm.findMany({ where: { schoolId: c.schoolId, sessionId: c.sessionId, level: c.level }, orderBy: { arm: 'asc' } });
+    const compared: { id: string; name: string; means: Record<string, number | null>; average: number | null }[] = [];
+    for (const a of arms) {
+      if (approvedOnly && !(await this.prisma.classResult.findUnique({ where: { classArmId_termId: { classArmId: a.id, termId: term.id } } }))) continue;
+      const d = a.id === c.id ? data : await this.compute(a, term, approvedOnly);
+      const avgs = d.students.map((x) => x.average).filter((x): x is number => x !== null);
+      compared.push({ id: a.id, name: className(a.level, a.arm), means: Object.fromEntries(d.subjects.map((x) => [x.code, x.average])), average: avg(avgs) });
+    }
+    return {
+      class: { id: c.id, name: className(c.level, c.arm), level: c.level, school: c.school },
+      term: { id: term.id, name: termName(term.number), session: term.session.name, showPositions: term.showPositions },
+      live: !approvedOnly,
+      scale,
+      summary: {
+        students,
+        average: avg(averages),
+        passRate: averages.length ? round1((averages.filter((a) => a >= PASS_MARK).length / averages.length) * 100) : null,
+        top: ranked[0] ? { id: ranked[0].id, fullName: ranked[0].fullName, average: ranked[0].average } : null,
+        weakestSubject: weakest ? { code: weakest.code, name: weakest.name, mean: weakest.mean } : null,
+      },
+      subjects,
+      ranking: ranked.map((x) => ({ id: x.id, fullName: x.fullName, average: x.average, position: x.position ? ordinal(x.position) : null, grade: gradeFor(c.level, x.average, term.sssGrading)?.grade ?? null })),
+      arms: { subjects: subjects.map((x) => ({ code: x.code, name: x.name })), rows: compared },
+    };
+  }
+
+  /**
+   * Where each school is with the term's results: released to parents and the Ministry, waiting for the school's
+   * approval, still with teachers, or not started. Also the latest releases, for the dashboard.
+   */
+  async submissions(actor: AuthUser, termId?: string) {
+    if (!isOversight(actor)) throw new ForbiddenException('You do not have access to this.');
+    const term = await this.term(termId);
+    const lga = actor.lga ?? null;
+    const classes = await this.prisma.$queryRaw<{ schoolId: string; classes: bigint; released: bigint; lastRelease: Date | null }[]>`
+      SELECT ca."schoolId", count(*) AS classes, count(cr.id) AS released, max(cr."releasedAt") AS "lastRelease"
+      FROM "ClassArm" ca JOIN "School" s ON s.id = ca."schoolId"
+      LEFT JOIN "ClassResult" cr ON cr."classArmId" = ca.id AND cr."termId" = ${term.id}::uuid
+      WHERE ca."sessionId" = ${term.sessionId}::uuid AND s."isActive" AND (${lga}::text IS NULL OR s.lga = ${lga})
+      GROUP BY ca."schoolId"`;
+    const sheets = await this.prisma.$queryRaw<{ schoolId: string; status: string; n: bigint }[]>`
+      SELECT ca."schoolId", ss.status::text AS status, count(*) AS n
+      FROM "ScoreSheet" ss JOIN "ClassSubject" cs ON cs.id = ss."classSubjectId" JOIN "ClassArm" ca ON ca.id = cs."classArmId"
+      JOIN "School" s ON s.id = ca."schoolId"
+      LEFT JOIN "ClassResult" cr ON cr."classArmId" = ca.id AND cr."termId" = ss."termId"
+      WHERE ss."termId" = ${term.id}::uuid AND cr.id IS NULL AND (${lga}::text IS NULL OR s.lga = ${lga})
+      GROUP BY ca."schoolId", ss.status`;
+    const schools = await this.prisma.school.findMany({ where: { isActive: true, ...schoolsInScope(actor) }, select: { id: true, name: true, code: true, lga: true }, orderBy: [{ lga: 'asc' }, { name: 'asc' }] });
+    const byClass = new Map(classes.map((r) => [r.schoolId, r]));
+    const bySheet = new Map<string, Record<string, number>>();
+    for (const r of sheets) {
+      if (!bySheet.has(r.schoolId)) bySheet.set(r.schoolId, {});
+      bySheet.get(r.schoolId)![r.status] = Number(r.n);
+    }
+    const rows = schools.map((s) => {
+      const c = byClass.get(s.id);
+      const st = bySheet.get(s.id) ?? {};
+      const total = Number(c?.classes ?? 0);
+      const released = Number(c?.released ?? 0);
+      const status =
+        total && released === total ? 'RELEASED'
+        : released ? 'PARTLY_RELEASED'
+        : st.SUBMITTED || st.APPROVED ? 'AWAITING_APPROVAL'
+        : st.DRAFT || st.RETURNED ? 'WITH_TEACHERS'
+        : 'NOT_STARTED';
+      return { ...s, classes: total, released, sheets: { draft: (st.DRAFT ?? 0) + (st.RETURNED ?? 0), submitted: st.SUBMITTED ?? 0, approved: st.APPROVED ?? 0 }, status, lastRelease: c?.lastRelease ?? null };
+    });
+    const latest = await this.prisma.classResult.findMany({
+      where: { termId: term.id, classArm: { school: { isActive: true, ...schoolsInScope(actor) } } },
+      orderBy: { releasedAt: 'desc' },
+      take: 10,
+      include: { classArm: { include: { school: { select: { id: true, name: true, lga: true } }, _count: { select: { placements: true } } } } },
+    });
+    const done = rows.filter((r) => r.status === 'RELEASED').length;
+    const count = (k: string) => rows.filter((r) => r.status === k).length;
+    return {
+      term: { id: term.id, name: termName(term.number), session: term.session.name, isCurrent: term.isCurrent, resultsDueOn: isoDate(term.resultsDueOn), scoresClosed: !!term.scoresClosedAt },
+      summary: {
+        schools: rows.length, released: done, percent: rows.length ? round1((done / rows.length) * 100) : null,
+        partlyReleased: count('PARTLY_RELEASED'), awaitingApproval: count('AWAITING_APPROVAL'), withTeachers: count('WITH_TEACHERS'), notStarted: count('NOT_STARTED'),
+        overdue: !!term.resultsDueOn && term.resultsDueOn < today() && done < rows.length,
+      },
+      schools: rows,
+      latest: latest.map((r) => ({ at: r.releasedAt, school: r.classArm.school, class: className(r.classArm.level, r.classArm.arm), students: r.classArm._count.placements })),
     };
   }
 

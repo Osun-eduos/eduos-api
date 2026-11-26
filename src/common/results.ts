@@ -94,7 +94,10 @@ interface Band {
   remark: string;
 }
 
-/** Senior secondary uses the WAEC scale; primary and junior secondary use A to F. Pass mark is 40 throughout. */
+/**
+ * Senior secondary uses the WAEC scale; primary and junior secondary use A to F. Pass mark is 40 throughout.
+ * These are the defaults: the Ministry can change the bands, and GradingService keeps this table up to date.
+ */
 export const GRADING: Record<'BASIC' | 'SSS', Band[]> = {
   BASIC: [
     { min: 70, grade: 'A', remark: 'Excellent' },

@@ -32,30 +32,39 @@ enum Ownership {
 }
 
 model School {
-  id           String       @id @default(uuid()) @db.Uuid
-  code         String       @unique
-  name         String
-  lga          String
-  level        SchoolLevel
-  ownership    Ownership
-  address      String?
-  isActive     Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  users        User[]
-  classes      ClassArm[]
-  students     Student[]    @relation("CurrentSchool")
-  enrolments   Enrolment[]
-  transfersOut Transfer[]   @relation("TransferFrom")
-  transfersIn  Transfer[]   @relation("TransferTo")
+  id                String       @id @default(uuid()) @db.Uuid
+  code              String       @unique
+  name              String
+  lga               String
+  level             SchoolLevel
+  ownership         Ownership
+  address           String?
+  town              String?
+  yearEstablished   Int?
+  latitude          Float?
+  longitude         Float?
+  /// Classrooms as declared by the school; inspections record how many are usable.
+  classrooms        Int?
+  expectedEnrolment Int?
+  /// e.g. WATER, TOILETS, POWER, ICT, LIBRARY, LAB, FENCE, SPORTS.
+  facilities        String[]     @default([])
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  users             User[]
+  classes           ClassArm[]
+  students          Student[]    @relation("CurrentSchool")
+  enrolments        Enrolment[]
+  transfersOut      Transfer[]   @relation("TransferFrom")
+  transfersIn       Transfer[]   @relation("TransferTo")
   /// Text parents when their child is marked absent. Schools can switch this off.
-  absenceSms   Boolean      @default(true)
+  absenceSms        Boolean      @default(true)
   /// Text parents when a report card is released.
-  resultsSms   Boolean      @default(true)
-  notices      Notice[]
-  staff        Staff[]      @relation("StaffCurrentSchool")
-  postings     Posting[]
-  inspections  Inspection[]
+  resultsSms        Boolean      @default(true)
+  notices           Notice[]
+  staff             Staff[]      @relation("StaffCurrentSchool")
+  postings          Posting[]
+  inspections       Inspection[]
 
   @@index([lga])
 }
@@ -213,6 +222,8 @@ model Student {
   stateOfOrigin   String?
   lgaOfOrigin     String?
   homeAddress     String?
+  /// School attended before enrolling in EduOS, if any.
+  previousSchool  String?
   status          StudentStatus     @default(ACTIVE)
   currentSchoolId String?           @db.Uuid
   currentSchool   School?           @relation("CurrentSchool", fields: [currentSchoolId], references: [id])
@@ -232,16 +243,18 @@ model Student {
 
 /// A student's time at one school. Only one enrolment per student is open (leftOn is null).
 model Enrolment {
-  id              String    @id @default(uuid()) @db.Uuid
-  studentId       String    @db.Uuid
-  student         Student   @relation(fields: [studentId], references: [id])
-  schoolId        String    @db.Uuid
-  school          School    @relation(fields: [schoolId], references: [id])
+  id              String      @id @default(uuid()) @db.Uuid
+  studentId       String      @db.Uuid
+  student         Student     @relation(fields: [studentId], references: [id])
+  schoolId        String      @db.Uuid
+  school          School      @relation(fields: [schoolId], references: [id])
   admissionNumber String
-  admittedOn      DateTime  @db.Date
-  leftOn          DateTime? @db.Date
+  admittedOn      DateTime    @db.Date
+  /// Class level the student joined at, used to allocate them to an arm later.
+  entryLevel      ClassLevel?
+  leftOn          DateTime?   @db.Date
   leftReason      String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime    @default(now())
 
   @@unique([schoolId, admissionNumber])
   @@index([studentId])
@@ -343,22 +356,27 @@ model AttendanceMark {
 
 /// A term within an academic session. One term is current across the state.
 model Term {
-  id            String          @id @default(uuid()) @db.Uuid
-  sessionId     String          @db.Uuid
-  session       AcademicSession @relation(fields: [sessionId], references: [id])
-  number        Int
-  startDate     DateTime        @db.Date
-  endDate       DateTime        @db.Date
-  isCurrent     Boolean         @default(false)
+  id             String          @id @default(uuid()) @db.Uuid
+  sessionId      String          @db.Uuid
+  session        AcademicSession @relation(fields: [sessionId], references: [id])
+  number         Int
+  startDate      DateTime        @db.Date
+  endDate        DateTime        @db.Date
+  isCurrent      Boolean         @default(false)
   /// Assessment components, e.g. [{"key":"CA1","label":"CA 1","max":20}, ...]; maxima add up to 100.
-  components    Json
-  showPositions Boolean         @default(true)
+  components     Json
+  showPositions  Boolean         @default(true)
   /// Grading scale for senior secondary classes: WAEC (A1 to F9) or BASIC (A to F).
-  sssGrading    SssGrading      @default(WAEC)
-  createdAt     DateTime        @default(now())
-  sheets        ScoreSheet[]
-  results       ClassResult[]
-  remarks       ReportRemark[]
+  sssGrading     SssGrading      @default(WAEC)
+  /// Date by which schools should release this term's results.
+  resultsDueOn   DateTime?       @db.Date
+  /// When set, score entry is closed for this term even while it is current.
+  scoresClosedAt DateTime?
+  examPapers     ExamPaper[]
+  createdAt      DateTime        @default(now())
+  sheets         ScoreSheet[]
+  results        ClassResult[]
+  remarks        ReportRemark[]
 
   @@unique([sessionId, number])
 }
@@ -553,13 +571,13 @@ enum PostingStatus {
 
 /// A member of staff in a school, with or without a sign-in account.
 model Staff {
-  id               String           @id @default(uuid()) @db.Uuid
-  staffNumber      String           @unique
+  id               String            @id @default(uuid()) @db.Uuid
+  staffNumber      String            @unique
   surname          String
   firstName        String
   middleName       String?
   sex              Sex
-  dateOfBirth      DateTime?        @db.Date
+  dateOfBirth      DateTime?         @db.Date
   phone            String?
   email            String?
   category         StaffCategory
@@ -567,23 +585,24 @@ model Staff {
   rank             String?
   gradeLevel       Int?
   step             Int?
-  firstAppointment DateTime?        @db.Date
+  firstAppointment DateTime?         @db.Date
   /// Teachers Registration Council of Nigeria number.
   trcnNumber       String?
   /// Subject codes the person is qualified to teach.
   subjects         String[]
-  status           StaffStatus      @default(ACTIVE)
-  currentSchoolId  String?          @db.Uuid
-  currentSchool    School?          @relation("StaffCurrentSchool", fields: [currentSchoolId], references: [id])
-  userId           String?          @unique @db.Uuid
-  user             User?            @relation(fields: [userId], references: [id])
-  createdById      String?          @db.Uuid
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  status           StaffStatus       @default(ACTIVE)
+  currentSchoolId  String?           @db.Uuid
+  currentSchool    School?           @relation("StaffCurrentSchool", fields: [currentSchoolId], references: [id])
+  userId           String?           @unique @db.Uuid
+  user             User?             @relation(fields: [userId], references: [id])
+  createdById      String?           @db.Uuid
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   qualifications   Qualification[]
   postings         Posting[]
   postingRequests  PostingRequest[]
   trainings        Training[]
+  attendance       StaffAttendance[]
 
   @@index([currentSchoolId])
   @@index([surname, firstName])
@@ -657,22 +676,27 @@ model Training {
 
 /// A visit to a school recording the state of classrooms, toilets, water, power and safety.
 model Inspection {
-  id          String            @id @default(uuid()) @db.Uuid
+  id           String            @id @default(uuid()) @db.Uuid
   /// Set by the phone that recorded it, so a retried upload is saved once.
-  clientId    String            @unique
-  schoolId    String            @db.Uuid
-  school      School            @relation(fields: [schoolId], references: [id])
-  inspectorId String            @db.Uuid
-  inspector   User              @relation(fields: [inspectorId], references: [id])
-  visitedOn   DateTime          @db.Date
+  clientId     String            @unique
+  schoolId     String            @db.Uuid
+  school       School            @relation(fields: [schoolId], references: [id])
+  inspectorId  String            @db.Uuid
+  inspector    User              @relation(fields: [inspectorId], references: [id])
+  visitedOn    DateTime          @db.Date
   /// Checklist version the answers follow.
-  template    Int               @default(1)
-  answers     Json
+  template     Int               @default(1)
+  answers      Json
   /// GOOD, FAIR, POOR or CRITICAL, worked out from the answers.
-  overall     String
-  notes       String?
-  createdAt   DateTime          @default(now())
-  photos      InspectionPhoto[]
+  overall      String
+  notes        String?
+  /// What happens next: URGENT, PLANNED or RESOLVED. Set by the Ministry or the LGA.
+  followUp     String?
+  followUpNote String?
+  followUpById String?           @db.Uuid
+  followUpAt   DateTime?
+  createdAt    DateTime          @default(now())
+  photos       InspectionPhoto[]
 
   @@index([schoolId, visitedOn])
   @@index([inspectorId])
@@ -741,6 +765,8 @@ model Notice {
   schoolId   String   @db.Uuid
   school     School   @relation(fields: [schoolId], references: [id])
   classArmId String?  @db.Uuid
+  /// PARENTS or STAFF.
+  audience   String   @default("PARENTS")
   title      String
   body       String
   sms        Boolean  @default(false)
@@ -749,4 +775,81 @@ model Notice {
   createdAt  DateTime @default(now())
 
   @@index([schoolId, createdAt])
+}
+
+// ---------- Prototype parity: settings, exams, population, staff attendance, report card codes ----------
+
+/// State-wide settings the Ministry can change, such as the grading scales.
+model Setting {
+  key         String   @id
+  value       Json
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt
+}
+
+/// One paper in a school's examination timetable for a class level and term.
+model ExamPaper {
+  id          String     @id @default(uuid()) @db.Uuid
+  schoolId    String     @db.Uuid
+  termId      String     @db.Uuid
+  term        Term       @relation(fields: [termId], references: [id])
+  level       ClassLevel
+  subjectCode String
+  date        DateTime   @db.Date
+  /// Start time, HH:MM.
+  startTime   String
+  minutes     Int
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([schoolId, termId, level, subjectCode])
+  @@index([termId, level])
+}
+
+/// School-age population estimate for an LGA, used for enrolment ratios (GER, NER) and out-of-school figures.
+model PopulationEstimate {
+  id        String   @id @default(uuid()) @db.Uuid
+  lga       String
+  year      Int
+  /// PRIMARY (ages 6 to 11), JSS (12 to 14) or SSS (15 to 17).
+  stage     String
+  male      Int
+  female    Int
+  source    String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([lga, year, stage])
+}
+
+enum StaffAttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  LEAVE
+}
+
+/// A member of staff's attendance for one school day.
+model StaffAttendance {
+  id          String                @id @default(uuid()) @db.Uuid
+  staffId     String                @db.Uuid
+  staff       Staff                 @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  schoolId    String                @db.Uuid
+  date        DateTime              @db.Date
+  status      StaffAttendanceStatus
+  /// Set when the teacher clocked in from the app.
+  clockedInAt DateTime?
+  markedById  String?               @db.Uuid
+  updatedAt   DateTime              @updatedAt
+
+  @@unique([staffId, date])
+  @@index([schoolId, date])
+}
+
+/// The code printed on a report card so anyone can check it against EduOS records.
+model ReportCode {
+  code      String   @id
+  studentId String   @db.Uuid
+  termId    String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  @@unique([studentId, termId])
 }

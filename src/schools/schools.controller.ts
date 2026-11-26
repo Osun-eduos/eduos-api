@@ -42,7 +42,7 @@ export class SchoolsController {
   }
 
   @Patch(':id')
-  @Roles(Role.MINISTRY_ADMIN)
+  @Roles(Role.MINISTRY_ADMIN, Role.SCHOOL_ADMIN)
   update(@CurrentUser() me: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSchoolDto, @Req() req: Request) {
     return this.schools.update(me, id, dto, req.ip ?? null);
   }

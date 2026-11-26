@@ -100,10 +100,13 @@ describe('Notices and the inbox (e2e)', () => {
   });
 
   it('sends a notice to every parent, or to one class, with an optional text', async () => {
+    // Enrolment confirmations are covered in parity.e2e-spec; set them aside here.
+    await prisma.smsMessage.deleteMany({ where: { kind: 'ENROLMENT' } });
+    await prisma.notification.deleteMany({ where: { kind: 'ENROLMENT' } });
     const all = await school.post('/notices', { title: 'Inter-house sports', body: 'Sports day is on Friday. Pupils wear house colours.', sms: true }).expect(201);
     expect(all.body).toMatchObject({ audience: 'All parents', recipients: 2, texts: 1 });
     const one = await school.post('/notices', { title: 'JSS 1 excursion', body: 'Forms are due on Monday.', classArmId: jss1 }).expect(201);
-    expect(one.body).toMatchObject({ audience: 'JSS 1A', recipients: 1, texts: 0 });
+    expect(one.body).toMatchObject({ audience: 'JSS 1A parents', recipients: 1, texts: 0 });
 
     const mine = (await mum.get('/notifications').expect(200)).body;
     expect(mine.unread).toBe(2);
@@ -112,7 +115,7 @@ describe('Notices and the inbox (e2e)', () => {
     expect((await dad.get('/notifications').expect(200)).body.items.map((n: { title: string }) => n.title)).toEqual(['Inter-house sports']);
     const text = await prisma.smsMessage.findFirstOrThrow({ where: { kind: 'NOTICE' } });
     expect(text).toMatchObject({ to: '+2348031112222', body: 'Ilesa Grammar School: Inter-house sports. Sports day is on Friday. Pupils wear house colours.' });
-    expect((await school.get('/notices').expect(200)).body.map((n: { audience: string }) => n.audience)).toEqual(['JSS 1A', 'All parents']);
+    expect((await school.get('/notices').expect(200)).body.map((n: { audience: string }) => n.audience)).toEqual(['JSS 1A parents', 'All parents']);
   });
 
   it('keeps texted notices short and limited, and only schools send notices', async () => {

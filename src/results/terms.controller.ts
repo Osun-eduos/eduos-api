@@ -1,11 +1,13 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
 import { Prisma, Role, SssGrading, Term } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { Request } from 'express';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
-import { isoDate, parseDate } from '../common/dates';
+import { isoDate, parseDate, today } from '../common/dates';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SmsService } from '../sms/sms.service';
 import { CurrentUser, Roles } from '../common/decorators';
 import { Component, componentsProblem, DEFAULT_COMPONENTS, termName } from '../common/results';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,11 +31,17 @@ class CreateTermDto {
 }
 
 class UpdateTermDto {
+  @IsOptional() @ValidateIf((_, v) => v !== null) @Matches(DATE, { message: 'Results due date must be YYYY-MM-DD.' }) resultsDueOn?: string | null;
+  @IsOptional() @IsBoolean() scoresClosed?: boolean;
   @IsOptional() @Matches(DATE) startDate?: string;
   @IsOptional() @Matches(DATE) endDate?: string;
   @IsOptional() @IsArray() @ArrayMaxSize(6) @ValidateNested({ each: true }) @Type(() => ComponentDto) components?: ComponentDto[];
   @IsOptional() @IsBoolean() showPositions?: boolean;
   @IsOptional() @IsEnum(SssGrading, { message: 'Senior secondary grading must be WAEC or BASIC.' }) sssGrading?: SssGrading;
+}
+
+class ResumptionDto {
+  @IsBoolean() sms!: boolean;
 }
 
 class TermsQuery {
@@ -46,11 +54,12 @@ export const termView = (t: TermWithSession) => ({
   id: t.id, number: t.number, name: termName(t.number), session: { id: t.session.id, name: t.session.name },
   startDate: isoDate(t.startDate), endDate: isoDate(t.endDate), isCurrent: t.isCurrent,
   components: t.components as unknown as Component[], showPositions: t.showPositions, sssGrading: t.sssGrading,
+  resultsDueOn: isoDate(t.resultsDueOn), scoresClosed: !!t.scoresClosedAt,
 });
 
 @Controller('terms')
 export class TermsController {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly notifications: NotificationsService, private readonly sms: SmsService) {}
 
   @Get()
   async list(@Query() q: TermsQuery) {
@@ -130,6 +139,8 @@ export class TermsController {
       data.components = dto.components as unknown as Prisma.InputJsonValue;
     }
     if (dto.showPositions !== undefined) data.showPositions = dto.showPositions;
+    if (dto.resultsDueOn !== undefined) data.resultsDueOn = dto.resultsDueOn === null ? null : parseDate(dto.resultsDueOn, 'Results due date');
+    if (dto.scoresClosed !== undefined) data.scoresClosedAt = dto.scoresClosed ? (t.scoresClosedAt ?? new Date()) : null;
     if (dto.sssGrading && dto.sssGrading !== t.sssGrading) {
       const released = await this.prisma.classResult.count({ where: { termId: id, classArm: { level: { in: ['SSS_1', 'SSS_2', 'SSS_3'] } } } });
       if (released) throw new BadRequestException('Senior secondary results have already been released for this term, so their grading scale cannot change.');
@@ -153,5 +164,38 @@ export class TermsController {
     });
     await this.audit.record({ actorId: me.id, action: 'term.made_current', targetType: 'term', targetId: id, meta: { term: termName(u.number), session: u.session.name }, ip: req.ip ?? null });
     return termView(u);
+  }
+
+  /**
+   * Tells every parent of an enrolled student when the term begins: an in-app notification, and a text if asked.
+   * Each term's resumption is announced once.
+   */
+  @Post(':id/notify-resumption')
+  @Roles(Role.MINISTRY_ADMIN)
+  @HttpCode(200)
+  async notifyResumption(@CurrentUser() me: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ResumptionDto, @Req() req: Request) {
+    const t = await this.prisma.term.findUnique({ where: { id }, include: { session: true } });
+    if (!t) throw new NotFoundException('Term not found.');
+    if (t.startDate < today()) throw new BadRequestException('This term has already begun.');
+    const key = `resumption:${t.id}`;
+    const done = await this.prisma.setting.findUnique({ where: { key } });
+    if (done) throw new ConflictException(`Parents were already told about this term on ${isoDate(done.updatedAt)}.`);
+    const parents = await this.prisma.user.findMany({
+      where: { role: Role.PARENT, isActive: true, children: { some: { student: { status: 'ACTIVE', currentSchoolId: { not: null } } } } },
+      select: { id: true, phone: true },
+    });
+    const day = ['weekday', 'day', 'month', 'year'].map((k) => new Intl.DateTimeFormat('en-GB', { [k]: k === 'weekday' || k === 'month' ? 'long' : 'numeric', timeZone: 'UTC' }).format(t.startDate)).join(' ');
+    const what = `The ${termName(t.number).toLowerCase()} of ${t.session.name}`;
+    await this.prisma.setting.create({ data: { key, value: { parents: parents.length, sms: dto.sms } as Prisma.InputJsonValue, updatedById: me.id } });
+    for (let i = 0; i < parents.length; i += 5000) {
+      const batch = parents.slice(i, i + 5000);
+      await this.notifications.notify(batch.map((p) => p.id), { kind: 'NOTICE', title: 'School resumes', body: `${what} begins on ${day}.`, key });
+      if (dto.sms) {
+        const texts = batch.filter((p) => p.phone).map((p) => ({ to: p.phone!, parentId: p.id, body: `${what} begins on ${day}. - Osun State Ministry of Education` }));
+        if (texts.length) await this.sms.queue('RESUMPTION', texts);
+      }
+    }
+    await this.audit.record({ actorId: me.id, action: 'term.resumption_announced', targetType: 'term', targetId: id, meta: { term: termName(t.number), session: t.session.name, parents: parents.length, sms: dto.sms }, ip: req.ip ?? null });
+    return { parents: parents.length, texts: dto.sms ? parents.filter((p) => p.phone).length : 0 };
   }
 }

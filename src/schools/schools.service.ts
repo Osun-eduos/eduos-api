@@ -1,4 +1,5 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { isoDate } from '../common/dates';
 import { Prisma, Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth-user';
@@ -26,7 +27,11 @@ export class SchoolsService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(42001)`;
       const code = await this.nextCode(tx, dto.lga, dto.level);
       const school = await tx.school.create({
-        data: { code, name: dto.name, lga: dto.lga, level: dto.level, ownership: dto.ownership, address: dto.address },
+        data: {
+          code, name: dto.name, lga: dto.lga, level: dto.level, ownership: dto.ownership, address: dto.address,
+          town: dto.town, yearEstablished: dto.yearEstablished, latitude: dto.latitude, longitude: dto.longitude,
+          classrooms: dto.classrooms, expectedEnrolment: dto.expectedEnrolment, facilities: dto.facilities ? [...new Set(dto.facilities)] : [],
+        },
       });
       await this.audit.record({ actorId: actor.id, action: 'school.created', targetType: 'school', targetId: school.id, schoolId: school.id, meta: { code }, ip }, tx);
       const admin = dto.admin ? await this.users.createInTx(tx, actor, dto.admin, Role.SCHOOL_ADMIN, school.id, ip) : null;
@@ -48,9 +53,13 @@ export class SchoolsService {
         ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q.toUpperCase() } }] } : {}),
       },
       orderBy: [{ lga: 'asc' }, { name: 'asc' }],
-      include: { _count: { select: { users: true, students: true } } },
+      include: { _count: { select: { users: true, students: true } }, inspections: { orderBy: { visitedOn: 'desc' }, take: 1, select: { visitedOn: true, overall: true } } },
     });
-    return schools.map(({ _count, ...s }) => ({ ...s, accounts: _count.users, students: _count.students }));
+    return schools.map(({ _count, inspections, ...s }) => ({
+      ...s, accounts: _count.users, students: _count.students,
+      lastInspection: inspections[0] ? { visitedOn: isoDate(inspections[0].visitedOn), overall: inspections[0].overall } : null,
+      pendingInspection: !inspections.length,
+    }));
   }
 
   async get(actor: AuthUser, id: string) {
@@ -60,13 +69,29 @@ export class SchoolsService {
     if (isOversight(actor)) assertSeesLga(actor, school.lga);
     const counts = await this.prisma.user.groupBy({ by: ['role'], where: { schoolId: id }, _count: true });
     const students = await this.prisma.student.count({ where: { currentSchoolId: id, status: 'ACTIVE' } });
-    return { ...school, students, accountsByRole: Object.fromEntries(counts.map((c) => [c.role, c._count])) };
+    const last = await this.prisma.inspection.findFirst({ where: { schoolId: id }, orderBy: { visitedOn: 'desc' }, select: { id: true, visitedOn: true, overall: true, answers: true } });
+    const classrooms = (last?.answers as { classrooms?: { total?: number; usable?: number } } | undefined)?.classrooms;
+    return {
+      ...school, students,
+      lastInspection: last ? { id: last.id, visitedOn: isoDate(last.visitedOn), overall: last.overall, classrooms: classrooms?.total ?? null, usableClassrooms: classrooms?.usable ?? null } : null,
+      pendingInspection: !last, accountsByRole: Object.fromEntries(counts.map((c) => [c.role, c._count])) };
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateSchoolDto, ip: string | null) {
     const school = await this.prisma.school.findUnique({ where: { id } });
     if (!school) throw new NotFoundException('School not found.');
-    const updated = await this.prisma.school.update({ where: { id }, data: dto });
+    if (actor.role === Role.SCHOOL_ADMIN) {
+      // A school keeps its own profile up to date; its name and status are the Ministry's.
+      if (actor.schoolId !== id) throw new NotFoundException('School not found.');
+      if (dto.name !== undefined || dto.isActive !== undefined || dto.address !== undefined) throw new ForbiddenException('Only the Ministry can change the school’s name, address or status.');
+    } else if (actor.role !== Role.MINISTRY_ADMIN) {
+      throw new ForbiddenException('You do not have access to this.');
+    }
+    if ((dto.latitude == null) !== (dto.longitude == null) && (dto.latitude !== undefined || dto.longitude !== undefined)) {
+      throw new BadRequestException('Give both latitude and longitude, or neither.');
+    }
+    const data = { ...dto, ...(dto.facilities ? { facilities: [...new Set(dto.facilities)] } : {}) };
+    const updated = await this.prisma.school.update({ where: { id }, data });
     if (dto.isActive === false) {
       await this.prisma.refreshToken.updateMany({ where: { user: { schoolId: id }, revokedAt: null }, data: { revokedAt: new Date() } });
     }

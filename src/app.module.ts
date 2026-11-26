@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuditModule } from './audit/audit.module';
+import { GradingModule } from './grading/grading.module';
 import { ResultsModule } from './results/results.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/jwt-auth.guard';
@@ -41,6 +42,7 @@ import { UsersModule } from './users/users.module';
     }),
     PrismaModule,
     AuditModule,
+    GradingModule,
     NotificationsModule,
     AuthModule,
     UsersModule,

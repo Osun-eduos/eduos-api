@@ -6,6 +6,7 @@ import { className } from '../common/classes';
 import { isOversight, seesLga } from '../common/scope';
 import { Component, gradeFor, round1, subjectName, termName } from '../common/results';
 import { currentTerm } from '../common/session';
+import { GradingService } from '../grading/grading.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type Marks = Record<string, number | null>;
@@ -32,7 +33,7 @@ export function totalOf(marks: Marks, components: Component[]) {
 
 @Injectable()
 export class SheetsService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly grading: GradingService) {}
 
   /** Students on the class roll during a term: placed in the class and admitted to the school by the end of the term. */
   roll(classArmId: string, schoolId: string, termEnd: Date) {
@@ -69,6 +70,7 @@ export class SheetsService {
     if (!ctx.canEdit) return 'Only the subject teacher or the school administrator can enter these scores.';
     if (!ctx.term.isCurrent) return `${termName(ctx.term.number)} ${ctx.term.session.name} is not the current term.`;
     if (ctx.released) return 'These results have been released.';
+    if (ctx.term.scoresClosedAt && status !== SheetStatus.SUBMITTED && status !== SheetStatus.APPROVED) return `Score entry for the ${termName(ctx.term.number).toLowerCase()} has been closed by the Ministry.`;
     if (status === SheetStatus.SUBMITTED) return 'Submitted for approval. The school administrator can return it if something needs changing.';
     if (status === SheetStatus.APPROVED) return 'Approved. The school administrator can return it if something needs changing.';
     return null;
@@ -89,6 +91,7 @@ export class SheetsService {
     for (const s of sheet?.scores ?? []) {
       if (!rows.has(s.studentId)) rows.set(s.studentId, { id: s.student.id, learnerId: s.student.learnerId, fullName: fullName(s.student), inClass: false, marks: { ...blank, ...(s.marks as Marks) }, total: s.total });
     }
+    await this.grading.refresh();
     const students = [...rows.values()].sort((a, b) => a.fullName.localeCompare(b.fullName)).map((r) => ({ ...r, grade: gradeFor(c.level, r.total, term.sssGrading)?.grade ?? null }));
     const totals = students.filter((s) => s.inClass && s.total !== null).map((s) => s.total!);
     const lockedReason = this.lockedReason(ctx);
@@ -187,6 +190,7 @@ export class SheetsService {
     if (!ctx.canEdit) throw new ForbiddenException('Only the subject teacher or the school administrator can submit these scores.');
     const sheet = ctx.sheet!;
     if (sheet.status !== SheetStatus.DRAFT && sheet.status !== SheetStatus.RETURNED) throw new BadRequestException('This score sheet has already been submitted.');
+    if (ctx.term.scoresClosedAt) throw new ForbiddenException(`Score entry for the ${termName(ctx.term.number).toLowerCase()} has been closed by the Ministry.`);
     const roll = await this.roll(ctx.c.id, ctx.c.schoolId, ctx.term.endDate);
     const done = new Set(sheet.scores.filter((s) => s.total !== null).map((s) => s.studentId));
     const missing = roll.filter((p) => !done.has(p.studentId));
@@ -209,5 +213,25 @@ export class SheetsService {
     if (actor.role !== Role.SCHOOL_ADMIN || ctx.c.schoolId !== actor.schoolId) throw new ForbiddenException('Only the school administrator can return scores.');
     if (ctx.sheet!.status !== SheetStatus.SUBMITTED && ctx.sheet!.status !== SheetStatus.APPROVED) throw new BadRequestException('Only submitted or approved score sheets can be returned.');
     return this.decide(actor, ctx, SheetStatus.RETURNED, 'scores.returned', ip, { decidedBy: { connect: { id: actor.id } }, decidedAt: new Date(), returnNote: note });
+  }
+
+  /** Approves every submitted score sheet at the school in the current term, or in one class. */
+  async approveAll(actor: AuthUser, classId: string | undefined, ip: string | null) {
+    if (actor.role !== Role.SCHOOL_ADMIN) throw new ForbiddenException('Only the school administrator can approve scores.');
+    const term = await this.prisma.term.findFirst({ where: { isCurrent: true } });
+    if (!term) throw new BadRequestException('The Ministry has not set the current term yet.');
+    const sheets = await this.prisma.scoreSheet.findMany({
+      where: { termId: term.id, status: SheetStatus.SUBMITTED, classSubject: { classArm: { schoolId: actor.schoolId!, ...(classId ? { id: classId } : {}), results: { none: { termId: term.id } } } } },
+      include: { classSubject: { include: { classArm: true } } },
+    });
+    if (!sheets.length) return { approved: 0 };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.scoreSheet.updateMany({ where: { id: { in: sheets.map((x) => x.id) }, status: SheetStatus.SUBMITTED }, data: { status: SheetStatus.APPROVED, decidedById: actor.id, decidedAt: new Date() } });
+      for (const sh of sheets) {
+        const c = sh.classSubject.classArm;
+        await this.audit.record({ actorId: actor.id, action: 'scores.approved', targetType: 'class', targetId: c.id, schoolId: c.schoolId, meta: { class: className(c.level, c.arm), subject: subjectName(sh.classSubject.subjectCode), term: termName(term.number), bulk: true }, ip }, tx);
+      }
+    });
+    return { approved: sheets.length };
   }
 }

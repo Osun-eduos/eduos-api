@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FcmProvider, PushProvider, readServiceAccount } from './push';
 
 export interface NewNotification {
-  kind: 'ABSENCE' | 'RESULTS' | 'TRANSFER' | 'NOTICE';
+  kind: 'ABSENCE' | 'RESULTS' | 'TRANSFER' | 'NOTICE' | 'ENROLMENT';
   title: string;
   body: string;
   link?: string;

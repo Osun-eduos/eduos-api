@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0] - 2026-11-26
+
+Everything in the original prototype is now in the product.
+
+### Added
+- School profiles: town, year established, GPS location, classrooms, expected enrolment and facilities. Schools keep their own profile; the list shows each school's latest inspection or "pending inspection".
+- Results: a due date per term, closing score entry for a term, each school's submission status with the latest releases, approving every waiting score sheet at once, and a class and subject analysis (grade spread, arms compared, ranking).
+- Grading scales the Ministry can change (`GET/PUT/DELETE /grading`), used everywhere grades appear.
+- Report cards show the overall grade, promotion at the end of the year and a verification code; anyone can check a code at `GET /verify/:code` without signing in.
+- Sessions can be created with their three terms; the Ministry can tell every parent when a term begins, in the app and by text.
+- Exam timetables per school, class level and term, which parents can see.
+- Enrolment records the previous school and entry class, and texts the guardian the admission number. New students can be auto-allocated to arms, balancing size and sex.
+- Notices to staff as well as parents; parents can list their schools' notices.
+- Staff register with clock-in for teachers, training hours against a 40-hour target, and subject shortages at one teacher per 40 pupils.
+- Infrastructure: minimum standards by LGA, classroom shortfall, and follow-up on inspection reports (urgent, planned, resolved).
+- Indicators: population estimates per LGA, gross and net enrolment ratios, out-of-school estimates, transition and completion, pupils per classroom, up to three LGAs compared over six terms, and a dashboard overview with LGA status and the schools that most need support.
+
 ## [0.8.0] - 2026-11-26
 
 ### Added
