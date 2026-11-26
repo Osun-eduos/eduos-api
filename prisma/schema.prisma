@@ -32,22 +32,27 @@ enum Ownership {
 }
 
 model School {
-  id           String      @id @default(uuid()) @db.Uuid
-  code         String      @unique
+  id           String       @id @default(uuid()) @db.Uuid
+  code         String       @unique
   name         String
   lga          String
   level        SchoolLevel
   ownership    Ownership
   address      String?
-  isActive     Boolean     @default(true)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
   users        User[]
   classes      ClassArm[]
-  students     Student[]   @relation("CurrentSchool")
+  students     Student[]    @relation("CurrentSchool")
   enrolments   Enrolment[]
-  transfersOut Transfer[]  @relation("TransferFrom")
-  transfersIn  Transfer[]  @relation("TransferTo")
+  transfersOut Transfer[]   @relation("TransferFrom")
+  transfersIn  Transfer[]   @relation("TransferTo")
+  /// Text parents when their child is marked absent. Schools can switch this off.
+  absenceSms   Boolean      @default(true)
+  staff        Staff[]      @relation("StaffCurrentSchool")
+  postings     Posting[]
+  inspections  Inspection[]
 
   @@index([lga])
 }
@@ -81,6 +86,8 @@ model User {
   sheetsSubmitted    ScoreSheet[]         @relation("SheetSubmittedBy")
   sheetsDecided      ScoreSheet[]         @relation("SheetDecidedBy")
   resultsReleased    ClassResult[]
+  staffRecord        Staff?
+  inspections        Inspection[]
 
   @@index([role])
   @@index([schoolId])
@@ -479,4 +486,206 @@ model Holiday {
 
   @@unique([startDate, name])
   @@index([startDate, endDate])
+}
+
+// ---------- Absence SMS ----------
+
+enum SmsStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+/// One text message to one phone. Absence texts are queued when a register is saved and sent after a short delay,
+/// so a corrected register cancels them. At most one per child, parent and day.
+model SmsMessage {
+  id         String    @id @default(uuid()) @db.Uuid
+  kind       String
+  to         String
+  body       String
+  schoolId   String?   @db.Uuid
+  studentId  String?   @db.Uuid
+  parentId   String?   @db.Uuid
+  date       DateTime? @db.Date
+  status     SmsStatus @default(QUEUED)
+  sendAfter  DateTime
+  attempts   Int       @default(0)
+  provider   String?
+  providerId String?
+  cost       String?
+  error      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  sentAt     DateTime?
+
+  @@unique([kind, studentId, parentId, date])
+  @@index([status, sendAfter])
+  @@index([schoolId, createdAt])
+}
+
+// ---------- Staff registry ----------
+
+enum StaffCategory {
+  TEACHING
+  NON_TEACHING
+}
+
+enum StaffStatus {
+  ACTIVE
+  ON_LEAVE
+  LEFT
+  RETIRED
+}
+
+enum PostingStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// A member of staff in a school, with or without a sign-in account.
+model Staff {
+  id               String           @id @default(uuid()) @db.Uuid
+  staffNumber      String           @unique
+  surname          String
+  firstName        String
+  middleName       String?
+  sex              Sex
+  dateOfBirth      DateTime?        @db.Date
+  phone            String?
+  email            String?
+  category         StaffCategory
+  /// Job title or cadre, e.g. Principal, Vice Principal, Teacher, Bursar.
+  rank             String?
+  gradeLevel       Int?
+  step             Int?
+  firstAppointment DateTime?        @db.Date
+  /// Teachers Registration Council of Nigeria number.
+  trcnNumber       String?
+  /// Subject codes the person is qualified to teach.
+  subjects         String[]
+  status           StaffStatus      @default(ACTIVE)
+  currentSchoolId  String?          @db.Uuid
+  currentSchool    School?          @relation("StaffCurrentSchool", fields: [currentSchoolId], references: [id])
+  userId           String?          @unique @db.Uuid
+  user             User?            @relation(fields: [userId], references: [id])
+  createdById      String?          @db.Uuid
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  qualifications   Qualification[]
+  postings         Posting[]
+  postingRequests  PostingRequest[]
+  trainings        Training[]
+
+  @@index([currentSchoolId])
+  @@index([surname, firstName])
+}
+
+model Qualification {
+  id          String   @id @default(uuid()) @db.Uuid
+  staffId     String   @db.Uuid
+  staff       Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  /// e.g. NCE, B.Ed, B.Sc, PGDE, M.Ed, SSCE.
+  kind        String
+  course      String?
+  institution String?
+  year        Int?
+  createdAt   DateTime @default(now())
+}
+
+/// Where someone worked and when. The open posting (no end date) is their current school.
+model Posting {
+  id          String    @id @default(uuid()) @db.Uuid
+  staffId     String    @db.Uuid
+  staff       Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  schoolId    String    @db.Uuid
+  school      School    @relation(fields: [schoolId], references: [id])
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date
+  reason      String?
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+
+  @@index([staffId, startDate])
+  @@index([schoolId])
+}
+
+/// A request to move staff to another school. Schools request; the Ministry approves.
+model PostingRequest {
+  id            String        @id @default(uuid()) @db.Uuid
+  staffId       String        @db.Uuid
+  staff         Staff         @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  fromSchoolId  String?       @db.Uuid
+  toSchoolId    String        @db.Uuid
+  reason        String
+  effectiveDate DateTime      @db.Date
+  status        PostingStatus @default(REQUESTED)
+  note          String?
+  requestedById String        @db.Uuid
+  decidedById   String?       @db.Uuid
+  requestedAt   DateTime      @default(now())
+  decidedAt     DateTime?
+
+  @@index([status])
+  @@index([staffId])
+}
+
+model Training {
+  id          String    @id @default(uuid()) @db.Uuid
+  staffId     String    @db.Uuid
+  staff       Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  title       String
+  provider    String?
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date
+  hours       Int?
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+
+  @@index([staffId])
+}
+
+// ---------- Infrastructure inspections ----------
+
+/// A visit to a school recording the state of classrooms, toilets, water, power and safety.
+model Inspection {
+  id          String            @id @default(uuid()) @db.Uuid
+  /// Set by the phone that recorded it, so a retried upload is saved once.
+  clientId    String            @unique
+  schoolId    String            @db.Uuid
+  school      School            @relation(fields: [schoolId], references: [id])
+  inspectorId String            @db.Uuid
+  inspector   User              @relation(fields: [inspectorId], references: [id])
+  visitedOn   DateTime          @db.Date
+  /// Checklist version the answers follow.
+  template    Int               @default(1)
+  answers     Json
+  /// GOOD, FAIR, POOR or CRITICAL, worked out from the answers.
+  overall     String
+  notes       String?
+  createdAt   DateTime          @default(now())
+  photos      InspectionPhoto[]
+
+  @@index([schoolId, visitedOn])
+  @@index([inspectorId])
+}
+
+model InspectionPhoto {
+  id           String     @id @default(uuid()) @db.Uuid
+  clientId     String     @unique
+  inspectionId String     @db.Uuid
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  section      String
+  caption      String?
+  contentType  String
+  bytes        Int
+  /// Where the image is: an object key in S3-compatible storage, or "db" when kept in `data` (development).
+  storageKey   String
+  data         Bytes?
+  createdAt    DateTime   @default(now())
+
+  @@index([inspectionId])
 }

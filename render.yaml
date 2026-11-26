@@ -50,6 +50,26 @@ services:
         sync: false
       - key: SEED_ADMIN_PASSWORD
         sync: false
+      # Absence texts to parents through KudiSMS. Until the token and sender ID are set, texts are only logged.
+      - key: KUDISMS_TOKEN
+        sync: false
+      - key: KUDISMS_SENDER_ID
+        sync: false
+      - key: KUDISMS_ROUTE
+        value: corporate
+      - key: ABSENCE_SMS_DELAY_MINUTES
+        value: "15"
+      # Inspection photos in S3-compatible storage (Cloudflare R2, Backblaze B2 or AWS S3).
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
 
   - type: web
     name: osun-eduos-sync

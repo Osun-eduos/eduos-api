@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0] - 2026-11-26
+
+### Added
+- Absence texts to parents through KudiSMS: queued when a register is saved, sent after a short delay unless the register is corrected, once per child, parent and day. Background sender with retries, a school on/off setting, a message log and a Ministry test send. Texts are only logged until the KudiSMS token and sender ID are set.
+- Staff registry: staff records with or without accounts, qualifications, training, posting history, school transfer requests approved by the Ministry, and direct Ministry postings that move a linked account. Staff counts and pupils per teacher on the home screens.
+- Infrastructure inspections: a versioned checklist, an overall grade with the issues behind it, idempotent uploads of visits and photos from the mobile app, S3-compatible photo storage, and read access for the school, its LGA and the Ministry.
+- `render.yaml` and `.env.example` list the new KudiSMS and S3 settings.
+
 ## [0.6.0] - 2026-11-25
 
 ### Added

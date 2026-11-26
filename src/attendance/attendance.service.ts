@@ -8,6 +8,7 @@ import { holidayOn } from '../common/holidays';
 import { isOversight, schoolsInScope, seesLga } from '../common/scope';
 import { currentSession } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
+import { SmsService } from '../sms/sms.service';
 import { StudentsService } from '../students/students.service';
 import { MarkDto } from './dto';
 
@@ -41,6 +42,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly students: StudentsService,
+    private readonly sms: SmsService,
   ) {}
 
   /** Loads a class the actor may see (or, with `edit`, take the register for). */
@@ -166,6 +168,8 @@ export class AttendanceService {
         tx,
       );
     });
+    // Texting parents must never stop a register being saved.
+    await this.sms.syncAbsences(c.id, date).catch((e) => console.error('Absence texts could not be queued', e));
     return this.getRegister(actor, c.id, dto.date);
   }
 

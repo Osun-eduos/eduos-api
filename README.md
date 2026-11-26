@@ -4,7 +4,28 @@
 
 Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source education management and intelligence system for Osun State. The web app is [eduos-web](https://github.com/Osun-eduos/eduos-web).
 
-## Status: milestone 4, results and report cards
+## Status: phase 2, day-to-day operations
+
+**Absence texts to parents**
+
+- When a child is marked **absent** (not late or excused) on today's register, each parent with a phone number gets one text, about 15 minutes later (`ABSENCE_SMS_DELAY_MINUTES`). Correcting the register before then cancels it. At most one text per child, parent and day; texts not sent on the day are dropped.
+- Sent through **KudiSMS** (`KUDISMS_TOKEN`, `KUDISMS_SENDER_ID`). The default `KUDISMS_ROUTE=corporate` is the transactional route, which needs an approved corporate sender ID and reaches numbers on DND. Without a token, texts are recorded but not sent, so everything can be tried safely.
+- A background sender in the API sends due texts every minute, retries outages (up to 3 attempts) and does not retry refusals such as a bad number. Several API instances can run it at once (`FOR UPDATE SKIP LOCKED`); set `SMS_WORKER=off` to stop one sending.
+- Schools can switch absence texts off. The Ministry sees every text, the KudiSMS balance, and can send a test message.
+
+**Staff registry**
+
+- Teaching and non-teaching staff, with or without a sign-in account: state staff number (`OSN-ST-000123`), job title, grade level and step, first appointment and years of service, TRCN number, subjects, qualifications and training.
+- Postings: the full history of schools and dates. Schools ask for a transfer; the Ministry administrator approves or declines, or posts someone directly. A linked teacher's account moves with them: they are signed out and lose their class and subject assignments at the old school.
+- Home screens show teaching and non-teaching staff and pupils per teacher.
+
+**Infrastructure inspections**
+
+- Inspectors and LGA education officers record visits on the mobile app: classrooms, toilets, water, power, safety and other facilities (`src/common/inspection.ts`), with photos and notes. Each visit gets an overall grade (good, fair, poor, critical) and a list of what needs attention.
+- Uploads are idempotent (an id made on the phone), so a dropped connection never saves a visit or photo twice. Photos must be JPEG, PNG or WebP (checked from the file itself), at most 5 MB, 30 per visit.
+- Photos are stored in any S3-compatible bucket (Cloudflare R2, Backblaze B2, AWS S3) set with `S3_BUCKET` and its keys, and served only to people who can see the school. Without a bucket they are kept in the database, for development.
+
+## Earlier milestones
 
 **Milestone 4: results and report cards**
 
@@ -101,6 +122,11 @@ LGA education officers and inspectors have the Ministry officer's read-only acce
 | Set holidays (no registers on those days) | ✓ | | | | |
 | Create classes, assign class teachers | | | ✓ own school | | |
 | Enrol, edit, place, withdraw students; link parents | | | ✓ own school | | |
+| Add and edit staff, qualifications and training | ✓ | | ✓ own school | | |
+| Ask for a staff transfer | | | ✓ own school | | |
+| Approve staff transfers, post staff | ✓ | | | | |
+| Switch absence texts on or off | ✓ any school | | ✓ own school | | |
+| See the text message log | ✓ all | ✓ all | own school | | |
 | Import students from a spreadsheet | | | ✓ own school | | |
 | Request, accept, decline, cancel transfers | | | ✓ own school | | |
 | View students | ✓ all | ✓ all | own school | own class | own children |
@@ -168,6 +194,26 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `GET /audit` | Activity log |
 | `GET /health` | Liveness and database check |
 
+
+### Staff, inspections and text messages
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /staff?schoolId=&q=&category=&status=` | Staff the caller may see (current staff unless a status is given) |
+| `POST /staff`, `PATCH /staff/:id` | Add or edit a staff record. Marking someone LEFT or RETIRED ends their posting |
+| `POST /staff/:id/qualifications`, `POST /staff/:id/trainings` | Record qualifications and training (and `DELETE` to remove one) |
+| `PATCH /staff/:id/account` | `{ userId }` links a teacher or administrator account at the same school (`null` unlinks) |
+| `POST /staff/:id/postings` | Ministry admin: post someone to another school |
+| `GET/POST /staff-transfers`, `POST /staff-transfers/:id/approve\|reject\|cancel` | Transfer requests from schools, decided by the Ministry |
+| `GET /my/staff-record` | The signed-in person's own staff record |
+| `GET /inspections/template` | The checklist the apps draw their forms from |
+| `GET /inspections?schoolId=&overall=&mine=` | Visits the caller may see |
+| `POST /inspections` | Inspectors and LGA officers: `{ clientId, schoolId, visitedOn, answers, notes }` |
+| `POST /inspections/:id/photos` | Multipart: `photo`, `clientId`, `section`, `caption` |
+| `GET /inspections/photos/:photoId` | The image, for people who can see the school |
+| `GET /sms`, `GET /sms/summary` | Text message log and today's counts |
+| `PATCH /sms/settings` | `{ absenceSms }` for the school (Ministry admin: with `schoolId`) |
+| `POST /sms/test` | Ministry admin: `{ phone }` sends a test message now |
 
 ### Holidays and spreadsheet imports
 

@@ -6,6 +6,7 @@ import { isOversight, schoolsInScope } from '../common/scope';
 import { AttendanceService } from '../attendance/attendance.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ResultsService } from '../results/results.service';
+import { StaffService } from '../staff/staff.service';
 import { currentTerm } from '../common/session';
 import { termName } from '../common/results';
 
@@ -15,6 +16,7 @@ export class StatsController {
     private readonly prisma: PrismaService,
     private readonly attendance: AttendanceService,
     private readonly results: ResultsService,
+    private readonly staffService: StaffService,
   ) {}
 
   /** Account and school counts for the signed-in user's home screen. */
@@ -40,8 +42,14 @@ export class StatsController {
     const counts = Object.fromEntries(Object.values(Role).map((r) => [r, 0])) as Record<Role, number>;
     byRole.forEach((c) => (counts[c.role] = c._count));
     const attendanceToday = me.role === Role.SCHOOL_ADMIN || oversight ? await this.attendance.todayStats(me) : null;
+    const staff = me.role === Role.SCHOOL_ADMIN || oversight
+      ? await this.staffService.counts(oversight ? (me.lga ? { currentSchool: area } : { currentSchoolId: { not: null } }) : { currentSchoolId: me.schoolId })
+      : null;
+    // Teachers per pupil, e.g. 35 means one teacher for every 35 students.
+    const pupilsPerTeacher = staff?.teaching ? Math.round((students / staff.teaching) * 10) / 10 : null;
+    const pendingStaffTransfers = me.role === Role.MINISTRY_ADMIN ? await this.prisma.postingRequest.count({ where: { status: 'REQUESTED' } }) : 0;
     const term = await currentTerm(this.prisma);
     const scoresAwaitingApproval = await this.results.awaitingApproval(me);
-    return { lga: me.lga, term: term ? { id: term.id, name: termName(term.number), session: term.session.name } : null, scoresAwaitingApproval, attendanceToday, accountsByRole: counts, schools, awaitingFirstSignIn: pending, students, unplaced, classes, session: session?.name ?? null, pendingTransfersIn };
+    return { lga: me.lga, term: term ? { id: term.id, name: termName(term.number), session: term.session.name } : null, scoresAwaitingApproval, attendanceToday, accountsByRole: counts, schools, awaitingFirstSignIn: pending, students, unplaced, classes, session: session?.name ?? null, pendingTransfersIn, staff, pupilsPerTeacher, pendingStaffTransfers };
   }
 }
