@@ -17,7 +17,10 @@ import { HolidaysController } from './holidays/holidays.controller';
 import { SessionsController } from './sessions/sessions.controller';
 import { StudentsModule } from './students/students.module';
 import { TransfersModule } from './transfers/transfers.module';
+import { IndicatorsModule } from './indicators/indicators.module';
 import { InspectionsModule } from './inspections/inspections.module';
+import { NoticesModule } from './notices/notices.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { SmsModule } from './sms/sms.module';
 import { StaffModule } from './staff/staff.module';
 import { StatsController } from './stats/stats.controller';
@@ -38,6 +41,7 @@ import { UsersModule } from './users/users.module';
     }),
     PrismaModule,
     AuditModule,
+    NotificationsModule,
     AuthModule,
     UsersModule,
     SchoolsModule,
@@ -49,6 +53,8 @@ import { UsersModule } from './users/users.module';
     SmsModule,
     StaffModule,
     InspectionsModule,
+    IndicatorsModule,
+    NoticesModule,
   ],
   controllers: [HealthController, StatsController, SessionsController, HolidaysController],
   providers: [

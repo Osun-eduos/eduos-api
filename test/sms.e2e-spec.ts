@@ -86,7 +86,7 @@ const weekday = ![0, 6].includes(lagos.getUTCDay());
     process.env.LOGIN_RATE_LIMIT = '1000';
     process.env.JWT_ACCESS_SECRET ??= 'test-secret-test-secret-test-secret-123';
     await prisma.$executeRawUnsafe(
-      'TRUNCATE "SmsMessage", "Holiday", "SyncEvent", "Score", "ScoreSheet", "ClassSubject", "ClassResult", "ReportRemark", "Term", "AttendanceMark", "AttendanceRegister", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',
+      'TRUNCATE "Notice", "Notification", "DeviceToken", "SmsMessage", "Holiday", "SyncEvent", "Score", "ScoreSheet", "ClassSubject", "ClassResult", "ReportRemark", "Term", "AttendanceMark", "AttendanceRegister", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',
     );
     await prisma.user.create({ data: { fullName: 'Ministry Admin', email: 'admin@moe.test', role: Role.MINISTRY_ADMIN, passwordHash: await hashPassword('Temp1234x') } });
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -120,6 +120,9 @@ const weekday = ![0, 6].includes(lagos.getUTCDay());
     await register({ [ada]: 'ABSENT', [bayo]: 'ABSENT', [chi]: 'ABSENT' });
     await register({ [ada]: 'ABSENT', [bayo]: 'ABSENT', [chi]: 'ABSENT' });
     expect(await prisma.smsMessage.count()).toBe(1); // Bayo's parent has no phone; Chi has no parent.
+    // Both parents see it in their inbox, phone or not, once.
+    const inbox = await prisma.notification.findMany({ where: { kind: 'ABSENCE' }, include: { user: true }, orderBy: { title: 'asc' } });
+    expect(inbox.map((n) => [n.user.fullName, n.title])).toEqual([['Mrs Ola', 'Ada was absent today'], ['Mr Email Only', 'Bayo was absent today']]);
     expect(await sms.sendDue()).toBe(1);
     expect(sent()).toEqual([{ to: '+2348031112222', body: expect.stringMatching(/^Ada Ola was marked absent at Ede Muslim High School today/) }]);
     await register({ [ada]: 'ABSENT', [bayo]: 'PRESENT', [chi]: 'PRESENT' });

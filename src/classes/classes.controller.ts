@@ -44,7 +44,7 @@ export class ClassesController {
 
   @Get()
   @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN, Role.TEACHER)
-  list(@CurrentUser() me: AuthUser, @Query('schoolId') schoolId?: string, @Query('sessionId') sessionId?: string) {
+  list(@CurrentUser() me: AuthUser, @Query('schoolId', new ParseUUIDPipe({ optional: true })) schoolId?: string, @Query('sessionId', new ParseUUIDPipe({ optional: true })) sessionId?: string) {
     return this.classes.list(me, schoolId, sessionId);
   }
 

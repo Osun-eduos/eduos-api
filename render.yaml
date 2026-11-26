@@ -59,6 +59,9 @@ services:
         value: corporate
       - key: ABSENCE_SMS_DELAY_MINUTES
         value: "15"
+      # Push notifications to the parent app (Firebase service account JSON). Without it, parents still get the inbox and SMS.
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       # Inspection photos in S3-compatible storage (Cloudflare R2, Backblaze B2 or AWS S3).
       - key: S3_BUCKET
         sync: false

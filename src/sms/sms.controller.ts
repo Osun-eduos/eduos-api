@@ -12,8 +12,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SmsService } from './sms.service';
 
 class SettingsDto {
+  @IsOptional()
   @IsBoolean()
-  absenceSms: boolean;
+  absenceSms?: boolean;
+
+  /** Text parents when a report card is released. */
+  @IsOptional()
+  @IsBoolean()
+  resultsSms?: boolean;
 
   /** Ministry administrators may set it for any school. */
   @IsOptional()
@@ -72,11 +78,12 @@ export class SmsController {
     const groups = await this.prisma.smsMessage.groupBy({ by: ['status'], where: { ...this.scope(me), createdAt: { gte: start } }, _count: true });
     const counts = Object.fromEntries(Object.values(SmsStatus).map((k) => [k, 0])) as Record<SmsStatus, number>;
     groups.forEach((g) => (counts[g.status] = g._count));
-    const school = me.role === Role.SCHOOL_ADMIN ? await this.prisma.school.findUnique({ where: { id: me.schoolId! }, select: { absenceSms: true } }) : null;
+    const school = me.role === Role.SCHOOL_ADMIN ? await this.prisma.school.findUnique({ where: { id: me.schoolId! }, select: { absenceSms: true, resultsSms: true } }) : null;
     const ministry = me.role !== Role.SCHOOL_ADMIN;
     return {
       today: counts,
       absenceSms: school?.absenceSms ?? null,
+      resultsSms: school?.resultsSms ?? null,
       delayMinutes: this.sms.delayMinutes,
       provider: this.sms.provider.name,
       sending: this.sms.provider.name !== 'log',
@@ -92,12 +99,18 @@ export class SmsController {
     if (!schoolId) throw new BadRequestException('Choose a school.');
     const school = await this.prisma.school.findUnique({ where: { id: schoolId } });
     if (!school) throw new NotFoundException('School not found.');
-    await this.prisma.school.update({ where: { id: schoolId }, data: { absenceSms: dto.absenceSms } });
-    if (!dto.absenceSms) {
-      await this.prisma.smsMessage.updateMany({ where: { schoolId, status: SmsStatus.QUEUED }, data: { status: SmsStatus.CANCELLED, error: 'The school has switched absence texts off.' } });
+    if (dto.absenceSms === undefined && dto.resultsSms === undefined) throw new BadRequestException('Nothing to change.');
+    const s = await this.prisma.school.update({ where: { id: schoolId }, data: { absenceSms: dto.absenceSms, resultsSms: dto.resultsSms } });
+    if (dto.absenceSms === false) {
+      await this.prisma.smsMessage.updateMany({ where: { schoolId, kind: 'ABSENCE', status: SmsStatus.QUEUED }, data: { status: SmsStatus.CANCELLED, error: 'The school has switched absence texts off.' } });
     }
-    await this.audit.record({ actorId: me.id, action: dto.absenceSms ? 'sms.absence_on' : 'sms.absence_off', targetType: 'school', targetId: schoolId, schoolId, ip: req.ip });
-    return { absenceSms: dto.absenceSms };
+    if (dto.resultsSms === false) {
+      await this.prisma.smsMessage.updateMany({ where: { schoolId, kind: 'RESULTS', status: SmsStatus.QUEUED }, data: { status: SmsStatus.CANCELLED, error: 'The school has switched results texts off.' } });
+    }
+    for (const [k, v] of [['absence', dto.absenceSms], ['results', dto.resultsSms]] as const) {
+      if (v !== undefined) await this.audit.record({ actorId: me.id, action: `sms.${k}_${v ? 'on' : 'off'}`, targetType: 'school', targetId: schoolId, schoolId, ip: req.ip });
+    }
+    return { absenceSms: s.absenceSms, resultsSms: s.resultsSms };
   }
 
   /** Sends one test message straight away, to check the provider account and sender ID. */

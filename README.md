@@ -4,7 +4,27 @@
 
 Part of [Osun EduOS](https://github.com/Osun-eduos/osun-eduos), the open-source education management and intelligence system for Osun State. The web app is [eduos-web](https://github.com/Osun-eduos/eduos-web).
 
-## Status: phase 2, day-to-day operations
+## Status: phase 3, intelligence and parents
+
+**Dashboards and indicators**
+
+- Education indicators for the state, an LGA, or school by school (`GET /indicators`): schools, classes and class size, enrolment by sex and stage, gender parity index, teachers, pupils per teacher, qualified and TRCN-registered teachers, attendance rate, average score, pass and credit rates (also by sex), and the condition of inspected schools. For any session, and optionally one term. Definitions are in `src/indicators/indicators.service.ts` and come with every export.
+- Trends across sessions and attendance month by month (`GET /indicators/trends`).
+- Exports for reports and returns (`GET /indicators/export?format=csv|xlsx|pdf`): a CSV, an Excel workbook (summary, breakdown, trend and definitions sheets), and a printable PDF report with a chart. Every export is recorded in the activity log.
+- LGA officers and LGA inspectors see their LGA, school by school. Figures are worked out in the database, so they stay quick with every school in the state.
+
+**Notifications for parents**
+
+- An inbox for everyone (`/notifications`), on the website and in the parent app: absences (shown when the absence text goes, and withdrawn if the register is corrected first), report cards when results are released, accepted transfers, and school notices.
+- Report card texts go to parents with a phone number when results are released; schools can switch these off separately from absence texts.
+- School notices (`/notices`) to every parent or one class, in the inbox and optionally by text (at most 240 characters, 3 texted notices per school per day).
+- Push notifications to the parent app through Firebase Cloud Messaging switch on when `FIREBASE_SERVICE_ACCOUNT` is set. The phone registers with `POST /devices`; tokens of uninstalled apps are removed.
+
+**Archive**
+
+- Past sessions stay readable: their classes (`GET /classes?sessionId=`), results by term, report cards, attendance and indicators. Registers, scores, remarks and releases are refused outside the current session and term.
+
+## Phase 2: day-to-day operations
 
 **Absence texts to parents**
 
@@ -194,6 +214,19 @@ All routes except sign-in, refresh, logout and health need `Authorization: Beare
 | `GET /audit` | Activity log |
 | `GET /health` | Liveness and database check |
 
+
+### Indicators, notifications and notices
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /indicators?sessionId=&termId=&lga=` | Oversight roles: indicators for the state (by LGA) or one LGA (by school) |
+| `GET /indicators/trends?sessionId=&lga=` | The last six sessions, and attendance by month in the session |
+| `GET /indicators/export?format=csv\|xlsx\|pdf&…` | The same figures as a file |
+| `GET /indicators/definitions` | What each indicator means |
+| `GET /notifications`, `GET /notifications/unread-count` | The signed-in person's inbox |
+| `POST /notifications/read` | `{ ids? }` marks some, or all, read |
+| `POST /devices`, `DELETE /devices/:token` | Register or remove a phone for push notifications |
+| `GET /notices`, `POST /notices` | School admin: `{ title, body, classArmId?, sms? }` to all parents or one class |
 
 ### Staff, inspections and text messages
 

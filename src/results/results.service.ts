@@ -7,6 +7,8 @@ import { isoDate } from '../common/dates';
 import { isOversight, schoolsInScope, seesLga } from '../common/scope';
 import { Component, CREDIT_MARK, gradeFor, ordinal, PASS_MARK, rank, round1, scaleFor, subjectName, termName } from '../common/results';
 import { currentTerm } from '../common/session';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SmsService } from '../sms/sms.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudentsService } from '../students/students.service';
 import { Marks, SheetsService } from './sheets.service';
@@ -22,6 +24,8 @@ export class ResultsService {
     private readonly audit: AuditService,
     private readonly sheets: SheetsService,
     private readonly students: StudentsService,
+    private readonly notifications: NotificationsService,
+    private readonly sms: SmsService,
   ) {}
 
   private async term(termId?: string): Promise<TermRow> {
@@ -144,7 +148,31 @@ export class ResultsService {
     if (r.blockers.length) throw new BadRequestException(r.blockers.join(' '));
     await this.prisma.classResult.create({ data: { classArmId: classId, termId: r.term.id, releasedById: actor.id } });
     await this.audit.record({ actorId: actor.id, action: 'results.released', targetType: 'class', targetId: classId, schoolId: r.class.school.id, meta: { class: r.class.name, term: r.term.name, session: r.term.session, students: r.students.length }, ip });
+    // Telling parents must never undo a release.
+    await this.tellParents(r.class.school.id, r.students.map((s) => s.id), r.term).catch((e) => console.error('Parents could not be told about released results', e));
     return this.classResults(actor, classId);
+  }
+
+  /** Each parent gets a notification per child, and a text if the school sends results texts. */
+  private async tellParents(schoolId: string, studentIds: string[], term: { id: string; name: string; session: string }) {
+    const [students, school, links] = await Promise.all([
+      this.prisma.student.findMany({ where: { id: { in: studentIds } }, select: { id: true, firstName: true, surname: true } }),
+      this.prisma.school.findUniqueOrThrow({ where: { id: schoolId }, select: { resultsSms: true } }),
+      this.notifications.parentsOf(studentIds),
+    ]);
+    const name = new Map(students.map((s) => [s.id, `${s.firstName} ${s.surname}`]));
+    const texts = [];
+    for (const l of links) {
+      const child = name.get(l.studentId)!;
+      await this.notifications.notify([l.parent.id], {
+        kind: 'RESULTS', title: 'Report card ready', body: `${child}'s ${term.name} report card for ${term.session} is ready.`,
+        link: `/report-card/${l.studentId}?term=${term.id}`, studentId: l.studentId, key: `results:${l.studentId}:${term.id}`,
+      });
+      if (school.resultsSms && l.parent.phone) {
+        texts.push({ to: l.parent.phone, parentId: l.parent.id, studentId: l.studentId, schoolId, body: `${child}'s ${term.name} report card is ready. Sign in to Osun EduOS to see it. - Osun EduOS` });
+      }
+    }
+    if (texts.length) await this.sms.queue('RESULTS', texts);
   }
 
   /** Terms a student has report cards for. Parents and the Ministry see released results only; the school and class teacher can preview. */

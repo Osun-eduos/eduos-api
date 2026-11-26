@@ -7,6 +7,7 @@ import { nextAdmissionNumber } from '../common/counter';
 import { isoDate, parseDate, today } from '../common/dates';
 import { isOversight } from '../common/scope';
 import { currentSession } from '../common/session';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const include = {
@@ -19,7 +20,7 @@ type Row = Prisma.TransferGetPayload<{ include: typeof include }>;
 
 @Injectable()
 export class TransfersService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly notifications: NotificationsService) {}
 
   private async view(rows: Row[]) {
     const ids = [...new Set(rows.flatMap((r) => [r.requestedById, r.decidedById]).filter(Boolean))] as string[];
@@ -116,6 +117,11 @@ export class TransfersService {
       for (const schoolId of [t.fromSchoolId, t.toSchoolId]) {
         await this.audit.record({ actorId: actor.id, action: 'transfer.accepted', targetType: 'student', targetId: t.studentId, schoolId, meta: { from: t.fromSchool.name, to: t.toSchool.name }, ip }, tx);
       }
+    });
+    const parents = await this.notifications.parentsOf([t.studentId]);
+    await this.notifications.notify(parents.map((p) => p.parent.id), {
+      kind: 'TRANSFER', title: `${t.student.firstName} has moved school`, body: `${t.student.firstName} ${t.student.surname} is now a student at ${t.toSchool.name}.`,
+      link: `/students/${t.studentId}`, studentId: t.studentId, key: `transfer:${t.id}`,
     });
     return (await this.view([await this.prisma.transfer.findUniqueOrThrow({ where: { id }, include })]))[0];
   }

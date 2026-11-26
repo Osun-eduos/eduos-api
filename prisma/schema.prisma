@@ -50,6 +50,9 @@ model School {
   transfersIn  Transfer[]   @relation("TransferTo")
   /// Text parents when their child is marked absent. Schools can switch this off.
   absenceSms   Boolean      @default(true)
+  /// Text parents when a report card is released.
+  resultsSms   Boolean      @default(true)
+  notices      Notice[]
   staff        Staff[]      @relation("StaffCurrentSchool")
   postings     Posting[]
   inspections  Inspection[]
@@ -88,6 +91,8 @@ model User {
   resultsReleased    ClassResult[]
   staffRecord        Staff?
   inspections        Inspection[]
+  notifications      Notification[]
+  devices            DeviceToken[]
 
   @@index([role])
   @@index([schoolId])
@@ -688,4 +693,60 @@ model InspectionPhoto {
   createdAt    DateTime   @default(now())
 
   @@index([inspectionId])
+}
+
+// ---------- Notifications ----------
+
+/// Something a person should know about, shown in their inbox on the web and the app (and pushed to their phone
+/// when push is set up). Notifications with a key are made at most once per person.
+model Notification {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// ABSENCE, RESULTS, TRANSFER or NOTICE.
+  kind         String
+  title        String
+  body         String
+  /// Where it leads in the apps, e.g. /report-card/<student id>?term=<term id>.
+  link         String?
+  studentId    String?   @db.Uuid
+  key          String?
+  /// Hidden until then (absence notices wait like the absence text, so a corrected register cancels them).
+  visibleAfter DateTime  @default(now())
+  readAt       DateTime?
+  pushedAt     DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, key])
+  @@index([userId, visibleAfter])
+  @@index([pushedAt, visibleAfter])
+}
+
+/// A phone that receives push notifications for a signed-in person.
+model DeviceToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  platform   String
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// A message from a school to its parents, or to the parents of one class.
+model Notice {
+  id         String   @id @default(uuid()) @db.Uuid
+  schoolId   String   @db.Uuid
+  school     School   @relation(fields: [schoolId], references: [id])
+  classArmId String?  @db.Uuid
+  title      String
+  body       String
+  sms        Boolean  @default(false)
+  recipients Int
+  sentById   String   @db.Uuid
+  createdAt  DateTime @default(now())
+
+  @@index([schoolId, createdAt])
 }

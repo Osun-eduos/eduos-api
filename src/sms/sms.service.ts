@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { AttendanceStatus, Prisma, SmsStatus } from '@prisma/client';
 import { isoDate, today } from '../common/dates';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { KudiSmsProvider, LogProvider, SmsProvider } from './providers';
 
@@ -24,7 +25,7 @@ export class SmsService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
 
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly notifications: NotificationsService) {
     const token = config.get<string>('KUDISMS_TOKEN');
     const sender = config.get<string>('KUDISMS_SENDER_ID');
     const want = config.get<string>('SMS_PROVIDER') ?? (token ? 'kudisms' : 'log');
@@ -75,10 +76,22 @@ export class SmsService implements OnModuleInit, OnModuleDestroy {
     const absent = reg.marks.filter((m) => m.status === AttendanceStatus.ABSENT);
     const notAbsent = reg.marks.filter((m) => m.status !== AttendanceStatus.ABSENT).map((m) => m.studentId);
     if (notAbsent.length) {
+      await this.notifications.withdrawPending(notAbsent.map((id) => `absence:${id}:${isoDate(date)}`));
       await this.prisma.smsMessage.updateMany({
         where: { kind: ABSENCE, date, studentId: { in: notAbsent }, status: SmsStatus.QUEUED },
         data: { status: SmsStatus.CANCELLED, error: 'The register was corrected.' },
       });
+    }
+    const sendAfter = new Date(Date.now() + this.delayMinutes * 60_000);
+    // Every parent sees it in their inbox, whether or not they have a phone number or the school sends texts.
+    for (const m of absent) {
+      await this.notifications.notify(
+        m.student.guardians.filter((g) => g.parent.isActive).map((g) => g.parent.id),
+        {
+          kind: 'ABSENCE', title: `${m.student.firstName} was absent today`, body: absenceText(m.student, school.name, date).replace(/ - Osun EduOS$/, ''),
+          link: `/students/${m.studentId}`, studentId: m.studentId, key: `absence:${m.studentId}:${isoDate(date)}`, visibleAfter: sendAfter,
+        },
+      );
     }
     if (!school.absenceSms) {
       await this.prisma.smsMessage.updateMany({
@@ -87,7 +100,6 @@ export class SmsService implements OnModuleInit, OnModuleDestroy {
       });
       return;
     }
-    const sendAfter = new Date(Date.now() + this.delayMinutes * 60_000);
     for (const m of absent) {
       for (const g of m.student.guardians) {
         if (!g.parent.phone || !g.parent.isActive) continue;
@@ -107,6 +119,18 @@ export class SmsService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
+  }
+
+  /**
+   * Queues one text to each parent given. Duplicates (same kind, student, parent and day) are skipped, so calling
+   * it again never texts anyone twice. Returns how many were queued.
+   */
+  async queue(kind: string, texts: { to: string; body: string; parentId: string; studentId?: string; schoolId?: string }[], date = today(), sendAfter = new Date()) {
+    const r = await this.prisma.smsMessage.createMany({
+      data: texts.map((t) => ({ kind, to: t.to, body: t.body, parentId: t.parentId, studentId: t.studentId ?? null, schoolId: t.schoolId ?? null, date, sendAfter })),
+      skipDuplicates: true,
+    });
+    return r.count;
   }
 
   /** Sends texts whose time has come. Safe to run on several API instances at once. */

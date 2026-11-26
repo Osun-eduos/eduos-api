@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.0] - 2026-11-26
+
+### Added
+- Education indicators for the state, each LGA and each school, for any session or term, with trends across sessions and attendance by month. Exports as CSV, Excel (built without third-party spreadsheet libraries) and a printable PDF report.
+- Notifications: an inbox for everyone, with absences, released report cards, accepted transfers and school notices. Report card texts with a school setting. School notices to all parents or one class, optionally by text. Push notifications through Firebase Cloud Messaging when `FIREBASE_SERVICE_ACCOUNT` is set.
+- Archive: the class list takes a `sessionId`, so past sessions can be browsed; tests confirm closed sessions cannot be changed.
+
+### Fixed
+- A malformed `sessionId` or `schoolId` on the class list now gets a clear 400 instead of a server error.
+
 ## [0.7.0] - 2026-11-26
 
 ### Added
