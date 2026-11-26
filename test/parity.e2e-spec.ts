@@ -357,4 +357,54 @@ describe('Prototype parity (e2e)', () => {
     expect(o.lgas[0].reasons).toEqual(expect.arrayContaining(['100% of inspected schools critical']));
     expect(o.schoolsNeedingSupport[0]).toMatchObject({ name: 'Osogbo Model School', reasons: expect.arrayContaining(['Critical inspection']) });
   });
+
+  it('searches examination records across sessions, schools, classes, subjects and students', async () => {
+    const all = (await ministry.get('/records').expect(200)).body;
+    expect(all.summary).toMatchObject({ records: 4, students: 2, mean: 54.5, passRate: 75 });
+    expect(all.rows[0]).toMatchObject({ session: '2095/2096', term: 'First term', class: 'JSS 1A', status: 'FINAL', school: { name: 'Osogbo Model School' } });
+    const maths = (await ministry.get('/records?subject=MTH').expect(200)).body;
+    expect(maths.summary).toMatchObject({ records: 2, mean: 59, passRate: 100 });
+    expect(maths.rows.map((r: { score: number; grade: string }) => [r.score, r.grade])).toEqual(expect.arrayContaining([[74, 'B'], [44, 'P']]));
+    const tobi = (await school.get('/records?q=ojo').expect(200)).body;
+    expect(tobi.rows.map((r: { student: string }) => r.student)).toEqual(['Ojo Tobi', 'Ojo Tobi']);
+    const adm = tobi.rows[0].admissionNumber;
+    expect((await school.get(`/records?q=${encodeURIComponent(adm)}`).expect(200)).body.summary.records).toBe(2);
+    expect((await ministry.get('/records?term=2').expect(200)).body.summary.records).toBe(0);
+    expect((await ministry.get('/records?level=JSS_2').expect(200)).body.summary.records).toBe(0);
+    await ministry.get('/records?subject=maths').expect(400);
+    await teacher.get('/records').expect(403);
+    await parent.get('/records').expect(403);
+
+    // Another school sees none of these, and the options list only its own school.
+    const b = await ministry.post('/schools', { name: 'Ede Muslim High School', lga: 'Ede North', level: 'JUNIOR_SECONDARY', ownership: 'PUBLIC', admin: { fullName: 'Head B', email: 'headb@x.test' } }).expect(201);
+    const other = as(await activate('headb@x.test', b.body.admin.tempPassword));
+    expect((await other.get('/records').expect(200)).body.summary.records).toBe(0);
+    expect((await other.get('/records/options').expect(200)).body.schools.map((x: { name: string }) => x.name)).toEqual(['Ede Muslim High School']);
+    const opts = (await ministry.get('/records/options').expect(200)).body;
+    expect(opts.subjects.map((x: { code: string }) => x.code)).toEqual(['ENG', 'MTH']);
+    expect(opts.levels).toEqual(['JSS_1']);
+
+    const csv = await ministry.get('/records/export?subject=MTH').expect(200);
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    const lines = csv.text.replace(/^\ufeff/, '').trim().split('\r\n');
+    expect(lines[0]).toBe('Session,Term,School,School no.,Class,Learner ID,Adm. no.,Student,Subject,Score,Grade,Record');
+    expect(lines).toHaveLength(3);
+  });
+
+  it('lists each arm\'s students so the school can move them', async () => {
+    const lv = (await school.get('/classes/allocation').expect(200)).body.levels[0];
+    expect(lv.arms.map((a: { roster: { fullName: string }[] }) => a.roster.length)).toEqual([2, 2]);
+    const mover = lv.arms[0].roster[0];
+    await school.post(`/students/${mover.id}/placement`, { classArmId: lv.arms[1].id }).expect(201);
+    const after = (await school.get('/classes/allocation').expect(200)).body.levels[0];
+    expect(after.arms.map((a: { students: number }) => a.students)).toEqual([1, 3]);
+    expect(after.arms[1].roster.map((x: { id: string }) => x.id)).toContain(mover.id);
+  });
+
+  it('records the action an inspector says is needed', async () => {
+    const r = (await inspector.post('/inspections', { clientId: 'web-0002-abcdefgh', schoolId, visitedOn: today, answers: goodAnswers(), actionNeeded: 'Fence the north side of the compound.' }).expect(201)).body;
+    expect(r.actionNeeded).toBe('Fence the north side of the compound.');
+    expect((await school.get(`/inspections/${r.id}`).expect(200)).body.actionNeeded).toBe('Fence the north side of the compound.');
+    await inspector.post('/inspections', { clientId: 'web-0003-abcdefgh', schoolId, visitedOn: today, answers: goodAnswers(), actionNeeded: 'x'.repeat(1001) }).expect(400);
+  });
 });

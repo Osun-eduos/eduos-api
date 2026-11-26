@@ -57,14 +57,18 @@ function tableRows(r: Report) {
 
 // ---------- CSV ----------
 
+/** One CSV cell. Cells starting with = + - @ are prefixed so spreadsheet programs never run them as formulas. */
+export function csvCell(v: unknown) {
+  const s = v === null || v === undefined ? '' : String(v);
+  const safe = /^[=+\-@]/.test(s) && Number.isNaN(Number(s)) ? `'${s}` : s;
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/** A CSV file with a byte-order mark, so Excel reads it as UTF-8. */
+export const csvFile = (rows: unknown[][]) => '﻿' + rows.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
 export function toCsv(r: Report): string {
-  const q = (v: unknown) => {
-    const s = v === null || v === undefined ? '' : String(v);
-    // Cells starting with = + - @ are prefixed so spreadsheet programs never run them as formulas.
-    const safe = /^[=+\-@]/.test(s) && Number.isNaN(Number(s)) ? `'${s}` : s;
-    return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
-  };
-  return '﻿' + tableRows(r).map((row) => row.map(q).join(',')).join('\r\n') + '\r\n';
+  return csvFile(tableRows(r));
 }
 
 // ---------- Excel ----------

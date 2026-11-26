@@ -19,6 +19,7 @@ class CreateInspectionDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Visit date must be YYYY-MM-DD.' }) visitedOn: string;
   @IsDefined() @IsObject() answers: Record<string, unknown>;
   @Transform(trim) @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+  @Transform(trim) @IsOptional() @IsString() @MaxLength(1000) actionNeeded?: string;
 }
 
 class PhotoDto {

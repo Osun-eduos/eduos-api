@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1] - 2026-11-26
+
+### Added
+- Examination records: `GET /records` searches every approved score by session, term, school, class level or class, subject and student (name, learner ID or admission number), with record count, mean, pass rate and students. Oversight users see released results; a school sees its own scores (provisional until released) and the released records its current students brought from earlier schools. `GET /records/export` downloads the same as CSV; `GET /records/options` lists the filters.
+- Class allocation lists each arm's students, so a school can move them between arms.
+- Inspections take an `actionNeeded` from the inspector.
+
 ## [0.9.0] - 2026-11-26
 
 Everything in the original prototype is now in the product.

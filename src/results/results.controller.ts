@@ -1,7 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
 import { ClassLevel, Role } from '@prisma/client';
-import { IsEnum, IsOptional, IsUUID } from 'class-validator';
-import { Request } from 'express';
+import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { Request, Response } from 'express';
+import { AuditService } from '../audit/audit.service';
+import { csvFile } from '../indicators/export';
+import { RecordsService } from './records.service';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser, Public, Roles } from '../common/decorators';
 import { Throttle } from '@nestjs/throttler';
@@ -11,6 +15,17 @@ import { AddSubjectDto, ClassTermQuery, ReleaseDto, ReturnDto, SaveRemarksDto, S
 import { ResultsService } from './results.service';
 import { SheetsService } from './sheets.service';
 import { SubjectsService } from './subjects.service';
+
+class RecordsQueryDto {
+  @IsOptional() @IsString() @MaxLength(100) q?: string;
+  @IsOptional() @IsUUID() sessionId?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(3) term?: number;
+  @IsOptional() @IsUUID() schoolId?: string;
+  @IsOptional() @IsEnum(ClassLevel) level?: ClassLevel;
+  @IsOptional() @IsUUID() classId?: string;
+  @IsOptional() @Matches(/^[A-Z]{3}$/) subject?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(10_000) page?: number;
+}
 
 class ApproveAllDto {
   @IsOptional() @IsUUID() classId?: string;
@@ -28,6 +43,8 @@ export class ResultsController {
     private readonly subjects: SubjectsService,
     private readonly sheets: SheetsService,
     private readonly results: ResultsService,
+    private readonly records: RecordsService,
+    private readonly audit: AuditService,
   ) {}
 
   // Subjects
@@ -138,6 +155,27 @@ export class ResultsController {
   @Roles(...STAFF)
   analysis(@CurrentUser() me: AuthUser, @Query() q: ClassTermQuery) {
     return this.results.analysis(me, q.classId, q.termId);
+  }
+
+  @Get('records/options')
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
+  recordOptions(@CurrentUser() me: AuthUser) {
+    return this.records.options(me);
+  }
+
+  @Get('records')
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
+  searchRecords(@CurrentUser() me: AuthUser, @Query() q: RecordsQueryDto) {
+    return this.records.search(me, q);
+  }
+
+  @Get('records/export')
+  @Roles(...OVERSIGHT_ROLES, Role.SCHOOL_ADMIN)
+  async exportRecords(@CurrentUser() me: AuthUser, @Query() q: RecordsQueryDto, @Req() req: Request, @Res() res: Response) {
+    const rows = await this.records.csv(me, q);
+    await this.audit.record({ actorId: me.id, action: 'records.exported', targetType: 'records', targetId: 'csv', schoolId: me.schoolId ?? null, meta: { rows: rows.length - 1, filters: JSON.parse(JSON.stringify(q)) }, ip: req.ip ?? null });
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="exam-records.csv"', 'Cache-Control': 'no-store' });
+    res.send(Buffer.from(csvFile(rows), 'utf8'));
   }
 
   @Get('results/submissions')

@@ -690,6 +690,8 @@ model Inspection {
   /// GOOD, FAIR, POOR or CRITICAL, worked out from the answers.
   overall      String
   notes        String?
+  /// What the inspector says must be done, e.g. "Repair the roof over the JSS 2 block".
+  actionNeeded String?
   /// What happens next: URGENT, PLANNED or RESOLVED. Set by the Ministry or the LGA.
   followUp     String?
   followUpNote String?

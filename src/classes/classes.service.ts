@@ -110,7 +110,7 @@ export class ClassesService {
     const { school, session } = await this.ownSchool(actor);
     const levels = LEVELS_FOR_SCHOOL[school.level];
     const [arms, unplaced] = await Promise.all([
-      this.prisma.classArm.findMany({ where: { schoolId: school.id, sessionId: session.id }, include: { placements: { select: { student: { select: { sex: true } } } } }, orderBy: [{ level: 'asc' }, { arm: 'asc' }] }),
+      this.prisma.classArm.findMany({ where: { schoolId: school.id, sessionId: session.id }, include: { placements: { select: { student: { select: { id: true, sex: true, surname: true, firstName: true, middleName: true } } } } }, orderBy: [{ level: 'asc' }, { arm: 'asc' }] }),
       this.prisma.student.findMany({
         where: { currentSchoolId: school.id, status: 'ACTIVE', placements: { none: { sessionId: session.id } } },
         include: {
@@ -139,6 +139,9 @@ export class ClassesService {
         arms: arms.filter((a) => a.level === level).map((a) => ({
           id: a.id, name: className(a.level, a.arm), capacity: a.capacity, students: a.placements.length,
           girls: a.placements.filter((p) => p.student.sex === 'F').length, boys: a.placements.filter((p) => p.student.sex === 'M').length,
+          roster: a.placements
+            .map((p) => ({ id: p.student.id, fullName: [p.student.surname, p.student.firstName, p.student.middleName].filter(Boolean).join(' '), sex: p.student.sex }))
+            .sort((x, y) => x.fullName.localeCompare(y.fullName)),
         })),
         unplaced: rows.filter((r) => r.level === level),
       })).filter((l) => l.arms.length || l.unplaced.length),

@@ -50,7 +50,7 @@ export class InspectionsService {
     const { overall, issues } = judged;
     return {
       id: r.id, clientId: r.clientId, school: r.school, inspector: r.inspector, visitedOn: isoDate(r.visitedOn), overall, createdAt: r.createdAt,
-      issues: full ? issues : issues.slice(0, 3), issueCount: issues.length, photoCount: r.photos.length, notes: r.notes,
+      issues: full ? issues : issues.slice(0, 3), issueCount: issues.length, photoCount: r.photos.length, notes: r.notes, actionNeeded: r.actionNeeded,
       followUp: r.followUp ? { status: r.followUp, note: r.followUpNote, at: r.followUpAt } : null,
       ...(full ? { template: r.template, answers: r.answers, photos: r.photos.map((p) => ({ id: p.id, clientId: p.clientId, section: p.section, caption: p.caption, bytes: p.bytes })) } : {}),
     };
@@ -84,7 +84,7 @@ export class InspectionsService {
   }
 
   /** Records a visit. A retried upload with the same clientId returns the inspection already saved. */
-  async create(actor: AuthUser, dto: { clientId: string; schoolId: string; visitedOn: string; answers: unknown; notes?: string }, ip: string | null) {
+  async create(actor: AuthUser, dto: { clientId: string; schoolId: string; visitedOn: string; answers: unknown; notes?: string; actionNeeded?: string }, ip: string | null) {
     const existing = await this.prisma.inspection.findUnique({ where: { clientId: dto.clientId }, include });
     if (existing) {
       if (existing.inspectorId !== actor.id) throw new ConflictException('That inspection id is already used.');
@@ -101,7 +101,7 @@ export class InspectionsService {
     const { overall } = assess(answers);
     try {
       const r = await this.prisma.inspection.create({
-        data: { clientId: dto.clientId, schoolId: school.id, inspectorId: actor.id, visitedOn, template: TEMPLATE_VERSION, answers, overall, notes: dto.notes },
+        data: { clientId: dto.clientId, schoolId: school.id, inspectorId: actor.id, visitedOn, template: TEMPLATE_VERSION, answers, overall, notes: dto.notes, actionNeeded: dto.actionNeeded },
         include,
       });
       await this.audit.record({ actorId: actor.id, action: 'inspection.recorded', targetType: 'inspection', targetId: r.id, schoolId: school.id, meta: { overall, visitedOn: dto.visitedOn }, ip });
