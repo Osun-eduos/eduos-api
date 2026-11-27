@@ -53,5 +53,16 @@
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2",
+      "effect": "3.22.4"
+    },
+    "@nestjs/cli": {
+      "glob": {
+        "minimatch": "11.0.4"
+      }
+    }
   }
 }
