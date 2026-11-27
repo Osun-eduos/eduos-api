@@ -104,7 +104,7 @@ cp .env.example .env
 npm run keys                       # prints JWT_PRIVATE_KEY and JWT_PUBLIC_KEY; put JWT_PRIVATE_KEY in .env
 docker compose up -d db            # PostgreSQL on localhost:5432
 npx prisma migrate deploy          # create the tables
-SEED_ADMIN_EMAIL=you@example.com npm run db:seed   # first Ministry administrator; prints a temporary password
+SEED_ADMIN_EMAIL=you@example.com SEED_ADMIN_PASSWORD='choose-a-temporary-one' npm run db:seed   # first Ministry administrator
 npm run start:dev                  # API on http://localhost:3000
 ```
 
