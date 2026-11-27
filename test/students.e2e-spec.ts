@@ -24,7 +24,7 @@ describe('Students and classes (e2e)', () => {
     const r = await http()
       .post('/auth/change-password')
       .set('Authorization', `Bearer ${first.body.accessToken}`)
-      .send({ currentPassword: temp, newPassword: 'Permanent2026' })
+      .send({ currentPassword: temp, newPassword: 'steady-maple-road-26' })
       .expect(200);
     return r.body.accessToken as string;
   }
@@ -46,7 +46,6 @@ describe('Students and classes (e2e)', () => {
   beforeAll(async () => {
     process.env.COOKIE_SECURE = 'false';
     process.env.LOGIN_RATE_LIMIT = '1000';
-    process.env.JWT_ACCESS_SECRET ??= 'test-secret-test-secret-test-secret-123';
     prisma = new PrismaClient();
     await prisma.$executeRawUnsafe(
       'TRUNCATE "Notice", "Notification", "DeviceToken", "SmsMessage", "Holiday", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',

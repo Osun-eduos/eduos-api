@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
+import { loadSigningKeys } from './common/jwt-keys';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuditModule } from './audit/audit.module';
@@ -35,9 +36,13 @@ import { UsersModule } from './users/users.module';
       global: true,
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const secret = config.get<string>('JWT_ACCESS_SECRET');
-        if (!secret || secret.length < 32) throw new Error('JWT_ACCESS_SECRET must be set to at least 32 characters.');
-        return { secret, signOptions: { expiresIn: config.get('ACCESS_TOKEN_TTL') ?? '15m', issuer: 'eduos-api' }, verifyOptions: { issuer: 'eduos-api' } };
+        const keys = loadSigningKeys(config.get<string>('JWT_PRIVATE_KEY'));
+        return {
+          privateKey: keys.privateKey,
+          publicKey: keys.publicKey,
+          signOptions: { algorithm: 'ES256', keyid: keys.keyId, expiresIn: config.get('ACCESS_TOKEN_TTL') ?? '15m', issuer: 'eduos-api' },
+          verifyOptions: { algorithms: ['ES256'], issuer: 'eduos-api' },
+        };
       },
     }),
     PrismaModule,

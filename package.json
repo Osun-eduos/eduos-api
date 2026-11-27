@@ -13,7 +13,8 @@
     "db:seed": "ts-node prisma/seed.ts",
     "test:e2e": "jest --config test/jest-e2e.json --runInBand",
     "lint:types": "tsc --noEmit",
-    "build:seed": "tsc -p tsconfig.seed.json"
+    "build:seed": "tsc -p tsconfig.seed.json",
+    "keys": "node scripts/generate-jwt-keys.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1168.0",

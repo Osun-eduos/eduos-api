@@ -7,7 +7,7 @@ import { AuthUser } from '../common/auth-user';
 import { className } from '../common/classes';
 import { nextAdmissionNumber, nextLearnerId } from '../common/counter';
 import { isoDate, today } from '../common/dates';
-import { normaliseEmail, normalisePhone } from '../common/identity';
+import { looksLikeEmail, normaliseEmail, normalisePhone } from '../common/identity';
 import { currentSession } from '../common/session';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -214,7 +214,7 @@ export class StudentImportService {
         let email: string | null = null;
         if (r.parentEmail) {
           email = normaliseEmail(r.parentEmail);
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err(`Parent email "${r.parentEmail}" is not valid.`);
+          if (!looksLikeEmail(email)) err(`Parent email "${r.parentEmail}" is not valid.`);
         }
         if (!r.parentPhone && !r.parentEmail) err('Give the parent a phone number or email so they can sign in.');
         if (phone || email) {

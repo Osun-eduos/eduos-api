@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing';
 import { PrismaClient, Role } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { createHmac, generateKeyPairSync, sign } from 'crypto';
+import { loadSigningKeys } from '../src/common/jwt-keys';
 import { hashPassword } from '../src/common/password';
 import { setupApp } from '../src/setup-app';
 
@@ -46,7 +48,6 @@ describe('Accounts and sign-in (e2e)', () => {
   beforeAll(async () => {
     process.env.COOKIE_SECURE = 'false';
     process.env.LOGIN_RATE_LIMIT = '1000';
-    process.env.JWT_ACCESS_SECRET ??= 'test-secret-test-secret-test-secret-123';
     prisma = new PrismaClient();
     await prisma.$executeRawUnsafe(
       'TRUNCATE "Notice", "Notification", "DeviceToken", "SmsMessage", "Holiday", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',
@@ -80,7 +81,7 @@ describe('Accounts and sign-in (e2e)', () => {
       .set('Authorization', `Bearer ${first.body.accessToken}`)
       .send({ currentPassword: 'Temp1234x', newPassword: 'short' })
       .expect(400);
-    ministry = await activate('admin@moe.test', 'Temp1234x', 'Ministry2026!');
+    ministry = await activate('admin@moe.test', 'Temp1234x', 'calm-harbour-stone-26');
     await http().get('/users').set('Authorization', `Bearer ${ministry}`).expect(200);
   });
 
@@ -96,7 +97,7 @@ describe('Accounts and sign-in (e2e)', () => {
     expect(res.body.school.code).toBe('OS/OSG/COM/0001');
     expect(res.body.admin.tempPassword).toHaveLength(10);
     schoolId = res.body.school.id;
-    schoolAdmin = await activate('principal@omss.test', res.body.admin.tempPassword, 'Principal2026!');
+    schoolAdmin = await activate('principal@omss.test', res.body.admin.tempPassword, 'green-mango-tree-26');
 
     const second = await http()
       .post('/schools')
@@ -122,7 +123,7 @@ describe('Accounts and sign-in (e2e)', () => {
       .expect(201);
     expect(t.body.user.schoolId).toBe(schoolId);
     teacherId = t.body.user.id;
-    await activate('tunde@omss.test', t.body.tempPassword, 'Teacher2026!');
+    await activate('tunde@omss.test', t.body.tempPassword, 'quiet-river-lamp-26');
 
     const p = await http()
       .post('/users')
@@ -130,7 +131,7 @@ describe('Accounts and sign-in (e2e)', () => {
       .send({ fullName: 'Bisi Adeleke', phone: '0803 412 5590', role: 'PARENT' })
       .expect(201);
     expect(p.body.user.phone).toBe('+2348034125590');
-    await activate('+234 803 412 5590', p.body.tempPassword, 'Parent2026!');
+    await activate('+234 803 412 5590', p.body.tempPassword, 'yellow-kite-sky-26');
   });
 
   it('stops schools creating Ministry accounts or accounts in another school', async () => {
@@ -148,14 +149,14 @@ describe('Accounts and sign-in (e2e)', () => {
   });
 
   it('keeps teachers and parents out of account management', async () => {
-    const teacher = (await login('tunde@omss.test', 'Teacher2026!').expect(200)).body.accessToken;
+    const teacher = (await login('tunde@omss.test', 'quiet-river-lamp-26').expect(200)).body.accessToken;
     await http().get('/users').set('Authorization', `Bearer ${teacher}`).expect(403);
     await http()
       .post('/users')
       .set('Authorization', `Bearer ${teacher}`)
       .send({ fullName: 'Sneaky Parent', email: 'sneaky@x.test', role: 'PARENT' })
       .expect(403);
-    const parent = (await login('08034125590', 'Parent2026!').expect(200)).body;
+    const parent = (await login('08034125590', 'yellow-kite-sky-26').expect(200)).body;
     expect(parent.user.role).toBe('PARENT');
     await http().get('/schools').set('Authorization', `Bearer ${parent.accessToken}`).expect(403);
   });
@@ -176,13 +177,13 @@ describe('Accounts and sign-in (e2e)', () => {
 
   it('locks an account after 5 failed attempts, and a reset unlocks it', async () => {
     for (let i = 0; i < 5; i++) await login('tunde@omss.test', 'wrong-password').expect(401);
-    await login('tunde@omss.test', 'Teacher2026!').expect(423);
+    await login('tunde@omss.test', 'quiet-river-lamp-26').expect(423);
     const reset = await http().post(`/users/${teacherId}/reset-password`).set('Authorization', `Bearer ${schoolAdmin}`).expect(201);
-    await activate('tunde@omss.test', reset.body.tempPassword, 'Teacher2027!');
+    await activate('tunde@omss.test', reset.body.tempPassword, 'quiet-river-lamp-27');
   });
 
   it('rotates refresh tokens and ends every session when an old one is reused', async () => {
-    const res = await login('principal@omss.test', 'Principal2026!').expect(200);
+    const res = await login('principal@omss.test', 'green-mango-tree-26').expect(200);
     const c1 = cookieFrom(res)!;
     expect(c1).toBeDefined();
     const r2 = await http().post('/auth/refresh').set('Cookie', c1).expect(200);
@@ -196,9 +197,34 @@ describe('Accounts and sign-in (e2e)', () => {
     await http().post('/auth/refresh').set('Cookie', c2).expect(401);
   });
 
+  it('signs access tokens with ES256 and rejects tokens signed any other way', async () => {
+    const [h, p] = ministry.split('.');
+    const header = JSON.parse(Buffer.from(h, 'base64url').toString());
+    expect(header.alg).toBe('ES256');
+    expect(header.kid).toEqual(expect.any(String));
+    const claims = JSON.parse(Buffer.from(p, 'base64url').toString());
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const me = (token: string) => http().get('/auth/me').set('Authorization', `Bearer ${token}`);
+    await me(ministry).expect(200);
+
+    // The classic forgery: an HMAC "signature" made with the server's public key as the secret.
+    const { publicKey } = loadSigningKeys(process.env.JWT_PRIVATE_KEY);
+    const hsBody = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(claims)}`;
+    await me(`${hsBody}.${createHmac('sha256', publicKey).update(hsBody).digest('base64url')}`).expect(401);
+
+    // A token signed by some other key pair.
+    const other = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
+    const esBody = `${b64(header)}.${b64(claims)}`;
+    const forged = sign('sha256', Buffer.from(esBody), { key: other, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+    await me(`${esBody}.${forged}`).expect(401);
+
+    // No signature at all.
+    await me(`${b64({ alg: 'none', typ: 'JWT' })}.${b64(claims)}.`).expect(401);
+  });
+
   it('gives native apps the refresh token in the body instead of a cookie', async () => {
     const mobile = () => ({ 'X-Client': 'mobile' });
-    const res = await http().post('/auth/login').set(mobile()).send({ identifier: 'principal@omss.test', password: 'Principal2026!' }).expect(200);
+    const res = await http().post('/auth/login').set(mobile()).send({ identifier: 'principal@omss.test', password: 'green-mango-tree-26' }).expect(200);
     expect(cookieFrom(res)).toBeUndefined();
     expect(res.body.refreshToken).toEqual(expect.any(String));
     expect(res.body.accessToken).toEqual(expect.any(String));
@@ -214,13 +240,13 @@ describe('Accounts and sign-in (e2e)', () => {
 
   it('blocks sign-in for deactivated accounts and schools', async () => {
     await http().patch(`/users/${teacherId}`).set('Authorization', `Bearer ${schoolAdmin}`).send({ isActive: false }).expect(200);
-    const blocked = await login('tunde@omss.test', 'Teacher2027!').expect(403);
+    const blocked = await login('tunde@omss.test', 'quiet-river-lamp-27').expect(403);
     expect(blocked.body.code).toBe('ACCOUNT_INACTIVE');
     await http().patch(`/users/${teacherId}`).set('Authorization', `Bearer ${schoolAdmin}`).send({ isActive: true }).expect(200);
-    await login('tunde@omss.test', 'Teacher2027!').expect(200);
+    await login('tunde@omss.test', 'quiet-river-lamp-27').expect(200);
 
     await http().patch(`/schools/${schoolId}`).set('Authorization', `Bearer ${ministry}`).send({ isActive: false }).expect(200);
-    await login('tunde@omss.test', 'Teacher2027!').expect(403);
+    await login('tunde@omss.test', 'quiet-river-lamp-27').expect(403);
     await http().patch(`/schools/${schoolId}`).set('Authorization', `Bearer ${ministry}`).send({ isActive: true }).expect(200);
   });
 

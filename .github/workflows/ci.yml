@@ -23,7 +23,6 @@ jobs:
           --health-cmd "pg_isready -U eduos" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://eduos:eduos@localhost:5432/eduos_test?schema=public
-      JWT_ACCESS_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

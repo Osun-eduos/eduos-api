@@ -24,7 +24,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://eduos:eduos@db:5432/eduos?schema=public
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local-development-secret-change-me-0123456789}
+      # Make a key with `npm run keys` and put JWT_PRIVATE_KEY in .env next to this file.
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       COOKIE_SECURE: "false"
     ports:

@@ -18,7 +18,7 @@ describe('Indicators (e2e)', () => {
   });
   async function activate(identifier: string, temp: string) {
     const first = await http().post('/auth/login').send({ identifier, password: temp }).expect(200);
-    const r = await http().post('/auth/change-password').set('Authorization', `Bearer ${first.body.accessToken}`).send({ currentPassword: temp, newPassword: 'Permanent2026' }).expect(200);
+    const r = await http().post('/auth/change-password').set('Authorization', `Bearer ${first.body.accessToken}`).send({ currentPassword: temp, newPassword: 'steady-maple-road-26' }).expect(200);
     return r.body.accessToken as string;
   }
   const d = (s: string) => new Date(s + 'T00:00:00Z');
@@ -32,7 +32,6 @@ describe('Indicators (e2e)', () => {
   beforeAll(async () => {
     process.env.COOKIE_SECURE = 'false';
     process.env.LOGIN_RATE_LIMIT = '1000';
-    process.env.JWT_ACCESS_SECRET ??= 'test-secret-test-secret-test-secret-123';
     prisma = new PrismaClient();
     await prisma.$executeRawUnsafe(
       'TRUNCATE "Notice", "Notification", "DeviceToken", "SmsMessage", "Holiday", "SyncEvent", "Score", "ScoreSheet", "ClassSubject", "ClassResult", "ReportRemark", "Term", "AttendanceMark", "AttendanceRegister", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',
