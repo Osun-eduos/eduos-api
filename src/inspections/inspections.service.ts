@@ -135,7 +135,7 @@ export class InspectionsService {
     const storageKey = await this.storage.put(key, file.buffer, type);
     try {
       const p = await this.prisma.inspectionPhoto.create({
-        data: { clientId: meta.clientId, inspectionId: id, section: meta.section, caption: meta.caption, contentType: type, bytes: file.size, storageKey, data: storageKey === 'db' ? file.buffer : null },
+        data: { clientId: meta.clientId, inspectionId: id, section: meta.section, caption: meta.caption, contentType: type, bytes: file.size, storageKey, data: storageKey === 'db' ? new Uint8Array(file.buffer) : null },
       });
       await this.audit.record({ actorId: actor.id, action: 'inspection.photo_added', targetType: 'inspection', targetId: id, schoolId: r.schoolId, meta: { section: meta.section }, ip });
       return { id: p.id, clientId: p.clientId, section: p.section, caption: p.caption, bytes: p.bytes, duplicate: false };
