@@ -1,10 +1,11 @@
-# Render Blueprint for an Osun EduOS pilot: database, API, sync service and web app.
+# Render Blueprint for an Osun EduOS pilot: database, API and sync service. The web app is on Cloudflare Pages
+# (see wrangler.toml in eduos-web) and reaches the API through its own /api address.
 # In Render: New > Blueprint > choose this repository. Render asks for the values marked `sync: false`.
 # Guide: https://github.com/Osun-eduos/osun-eduos/blob/main/docs/deployment.md
 #
-# Addresses (if Render gives a service a different address because the name is taken, update the web app's
-# /api rewrite below, WEB_ORIGIN, and the mobile app's server addresses):
-#   Web app:       https://osun-eduos-web.onrender.com
+# Addresses (if Render gives a service a different address because the name is taken, update API_ORIGIN in
+# eduos-web/wrangler.toml and the mobile app's server addresses):
+#   Web app:       https://osun-eduos-app.pages.dev (Cloudflare Pages)
 #   API:           https://osun-eduos-api.onrender.com
 #   Sync service:  https://osun-eduos-sync.onrender.com
 
@@ -35,11 +36,12 @@ services:
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: WEB_ORIGIN
-        value: https://osun-eduos-web.onrender.com
+        value: https://osun-eduos-app.pages.dev
       - key: COOKIE_SECURE
         value: "true"
+      # Two proxies sit in front of the API for web users: Cloudflare (the web app's /api) and Render.
       - key: TRUST_PROXY
-        value: "1"
+        value: "2"
       - key: LOGIN_RATE_LIMIT
         value: "60"
       # First Ministry administrator, created on first start only. Choose a temporary password; it must be
@@ -98,38 +100,3 @@ services:
           type: web
           name: osun-eduos-api
           property: hostport
-
-  - type: web
-    name: osun-eduos-web
-    runtime: static
-    repo: https://github.com/Osun-eduos/eduos-web
-    branch: main
-    buildCommand: npm ci && npm run build
-    staticPublishPath: dist
-    envVars:
-      - key: NODE_VERSION
-        value: "22"
-    routes:
-      # The browser talks to the API through the web app's own address, so the sign-in cookie stays first-party.
-      - type: rewrite
-        source: /api/*
-        destination: https://osun-eduos-api.onrender.com/*
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /*
-        name: X-Frame-Options
-        value: DENY
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-      - path: /*
-        name: Referrer-Policy
-        value: strict-origin-when-cross-origin
-      - path: /*
-        name: Permissions-Policy
-        value: camera=(), microphone=(), geolocation=()
-      - path: /*
-        name: X-Robots-Tag
-        value: noindex

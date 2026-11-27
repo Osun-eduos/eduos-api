@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.2] - 2026-11-27
+
+### Changed
+- `render.yaml`: the web app moves to Cloudflare Pages, so the Render static site is removed; `WEB_ORIGIN` is the Cloudflare address and `TRUST_PROXY` is 2 (Cloudflare, then Render).
+
 ## [0.9.1] - 2026-11-26
 
 ### Added
