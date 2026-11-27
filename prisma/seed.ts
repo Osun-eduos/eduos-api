@@ -31,7 +31,10 @@ async function main() {
     await prisma.auditLog.create({ data: { action: 'user.created', targetType: 'user', targetId: user.id, meta: { role: Role.MINISTRY_ADMIN, via: 'seed' } } });
     console.log('Ministry administrator created.');
     console.log(`  Sign in with: ${email ?? phone}`);
-    console.log(`  Temporary password: ${tempPassword}`);
+    // A password given in SEED_ADMIN_PASSWORD is already known to whoever set it, so it is never printed. A generated
+    // one is shown once so the administrator can sign in; it only works until they choose their own.
+    if (process.env.SEED_ADMIN_PASSWORD) console.log('  Temporary password: the one set in SEED_ADMIN_PASSWORD');
+    else console.log(`  Temporary password: ${tempPassword}`);
     console.log('  You will be asked to choose a new password at first sign-in.');
   } finally {
     await prisma.$disconnect();

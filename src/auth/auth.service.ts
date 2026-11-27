@@ -5,7 +5,7 @@ import { User } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { parseIdentifier } from '../common/identity';
-import { dummyVerify, hashPassword, passwordProblem, verifyPassword } from '../common/password';
+import { dummyVerify, hashPassword, isBreachedPassword, passwordProblem, verifyPassword } from '../common/password';
 import { userView } from '../common/user-view';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -127,8 +127,11 @@ export class AuthService {
   async changePassword(userId: string, current: string, next: string, meta: Meta) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (!(await verifyPassword(user.passwordHash, current))) throw new BadRequestException('Your current password is incorrect.');
-    const problem = passwordProblem(next);
+    const problem = passwordProblem(next, user);
     if (problem) throw new BadRequestException(problem);
+    if (await isBreachedPassword(next)) {
+      throw new BadRequestException('That password has appeared in a data breach elsewhere, so attackers try it first. Choose a different one.');
+    }
     if (await verifyPassword(user.passwordHash, next)) throw new BadRequestException('Choose a password different from your current one.');
 
     const updated = await this.prisma.user.update({

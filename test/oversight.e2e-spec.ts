@@ -19,7 +19,7 @@ describe('LGA officers and inspectors (e2e)', () => {
   });
   async function activate(identifier: string, temp: string) {
     const first = await http().post('/auth/login').send({ identifier, password: temp }).expect(200);
-    const r = await http().post('/auth/change-password').set('Authorization', `Bearer ${first.body.accessToken}`).send({ currentPassword: temp, newPassword: 'Permanent2026' }).expect(200);
+    const r = await http().post('/auth/change-password').set('Authorization', `Bearer ${first.body.accessToken}`).send({ currentPassword: temp, newPassword: 'steady-maple-road-26' }).expect(200);
     return r.body.accessToken as string;
   }
   const DAY = 86_400_000;
@@ -40,7 +40,6 @@ describe('LGA officers and inspectors (e2e)', () => {
   beforeAll(async () => {
     process.env.COOKIE_SECURE = 'false';
     process.env.LOGIN_RATE_LIMIT = '1000';
-    process.env.JWT_ACCESS_SECRET ??= 'test-secret-test-secret-test-secret-123';
     prisma = new PrismaClient();
     await prisma.$executeRawUnsafe(
       'TRUNCATE "Notice", "Notification", "DeviceToken", "SmsMessage", "Holiday", "SyncEvent", "Score", "ScoreSheet", "ClassSubject", "ClassResult", "ReportRemark", "Term", "AttendanceMark", "AttendanceRegister", "AuditLog", "RefreshToken", "Transfer", "StudentGuardian", "ClassPlacement", "Enrolment", "Student", "ClassArm", "AcademicSession", "Counter", "User", "School" CASCADE',
@@ -134,11 +133,11 @@ describe('LGA officers and inspectors (e2e)', () => {
   });
 
   it('applies an LGA change at once by signing the officer out', async () => {
-    const login = await http().post('/auth/login').send({ identifier: 'kola@x.test', password: 'Permanent2026' }).expect(200);
+    const login = await http().post('/auth/login').send({ identifier: 'kola@x.test', password: 'steady-maple-road-26' }).expect(200);
     const cookie = login.headers['set-cookie'];
     await ministry.patch(`/users/${officerId}`, { lga: 'Iwo' }).expect(200);
     await http().post('/auth/refresh').set('Cookie', cookie).expect(401);
-    const again = await http().post('/auth/login').send({ identifier: 'kola@x.test', password: 'Permanent2026' }).expect(200);
+    const again = await http().post('/auth/login').send({ identifier: 'kola@x.test', password: 'steady-maple-road-26' }).expect(200);
     const moved = as(again.body.accessToken);
     expect((await moved.get('/schools').expect(200)).body.map((s: { lga: string }) => s.lga)).toEqual(['Iwo']);
     await ministry.patch(`/users/${officerId}`, { lga: '' }).expect(400);
