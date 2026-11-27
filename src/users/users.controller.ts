@@ -31,6 +31,11 @@ export class UsersController {
     return this.users.update(me, id, dto, req.ip ?? null);
   }
 
+  @Post(':id/reset-two-step')
+  resetTwoStep(@CurrentUser() me: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    return this.users.resetTwoStep(me, id, req.ip ?? null);
+  }
+
   @Post(':id/reset-password')
   reset(@CurrentUser() me: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     return this.users.resetPassword(me, id, req.ip ?? null);

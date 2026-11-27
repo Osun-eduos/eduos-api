@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient, Role } from '@prisma/client';
 import request from 'supertest';
+import { completeTwoStep } from './helpers/two-step';
 import { AppModule } from '../src/app.module';
 import { assess, checkAnswers } from '../src/common/inspection';
 import { hashPassword } from '../src/common/password';
@@ -67,7 +68,7 @@ describe('Inspections (e2e)', () => {
   async function activate(identifier: string, temp: string) {
     const first = await http().post('/auth/login').send({ identifier, password: temp }).expect(200);
     const r = await http().post('/auth/change-password').set('Authorization', `Bearer ${first.body.accessToken}`).send({ currentPassword: temp, newPassword: 'steady-maple-road-26' }).expect(200);
-    return r.body.accessToken as string;
+    return completeTwoStep(http, r);
   }
   const today = new Date(Date.now() + 3_600_000).toISOString().slice(0, 10);
   const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 7)]);

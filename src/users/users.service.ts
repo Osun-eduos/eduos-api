@@ -6,6 +6,7 @@ import { normaliseEmail, normalisePhone } from '../common/identity';
 import { generateTempPassword, hashPassword } from '../common/password';
 import { LGA_NAMES } from '../common/lgas';
 import { CAN_MANAGE, MINISTRY_ROLES, SCHOOL_ROLES, STATE_ROLES } from '../common/roles';
+import { twoStepRequired } from '../common/two-step-policy';
 import { userView } from '../common/user-view';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, ListUsersQuery, NewAccountDto, UpdateUserDto } from './dto/user.dto';
@@ -185,5 +186,27 @@ export class UsersService {
     await this.prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
     await this.audit.record({ actorId: actor.id, action: 'user.password_reset', targetType: 'user', targetId: id, schoolId: target.schoolId, ip });
     return { user: userView(u), tempPassword };
+  }
+
+  /**
+   * Turns off someone's two-step sign-in, for when they lose their phone and their recovery codes. They are signed
+   * out everywhere; Ministry accounts must set it up again at their next sign-in. Only a Ministry administrator may
+   * reset a Ministry account, and nobody can reset their own.
+   */
+  async resetTwoStep(actor: AuthUser, id: string, ip: string | null) {
+    const target = await this.findManageable(actor, id);
+    if (target.id === actor.id) throw new BadRequestException('Ask another administrator to reset your own two-step sign-in.');
+    if (twoStepRequired(target.role) && actor.role !== Role.MINISTRY_ADMIN) {
+      throw new ForbiddenException('Only a Ministry administrator can reset two-step sign-in for a Ministry account.');
+    }
+    if (!target.totpEnabledAt) throw new BadRequestException('Two-step sign-in is not on for this account.');
+    const [u] = await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id }, data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null }, include: { school: true } }),
+      this.prisma.recoveryCode.deleteMany({ where: { userId: id } }),
+      this.prisma.mfaChallenge.deleteMany({ where: { userId: id } }),
+      this.prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ]);
+    await this.audit.record({ actorId: actor.id, action: 'user.two_step_reset', targetType: 'user', targetId: id, schoolId: target.schoolId, ip });
+    return userView(u);
   }
 }

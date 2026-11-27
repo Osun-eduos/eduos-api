@@ -104,7 +104,7 @@ cp .env.example .env
 npm run keys                       # prints JWT_PRIVATE_KEY and JWT_PUBLIC_KEY; put JWT_PRIVATE_KEY in .env
 docker compose up -d db            # PostgreSQL on localhost:5432
 npx prisma migrate deploy          # create the tables
-SEED_ADMIN_EMAIL=you@example.com SEED_ADMIN_PASSWORD='choose-a-temporary-one' npm run db:seed   # first Ministry administrator
+SEED_ADMIN_EMAIL=you@example.com npm run db:seed   # first Ministry administrator; prints a temporary password
 npm run start:dev                  # API on http://localhost:3000
 ```
 
@@ -276,6 +276,7 @@ The Docker image runs [`scripts/start.sh`](scripts/start.sh) on start-up:
 - Access tokens last 15 minutes and are held in memory by the web app. Refresh tokens are random, stored only as SHA-256 hashes, sent in an httpOnly `SameSite=Strict` cookie, and rotated on every use. Reusing an old refresh token after a 10-second grace period signs the account out everywhere.
 - Access tokens are signed with ES256. Only this API holds the private key (`JWT_PRIVATE_KEY`); eduos-sync checks tokens with the public key, so it cannot create them. Tokens signed any other way, including HMAC tokens made with the public key, are rejected.
 - Passwords need at least 12 characters, with no forced mix of letters and numbers (NIST SP 800-63B). Common passwords, the service's name and the person's own name, e-mail or phone are refused, and new passwords are checked against Have I Been Pwned's list of leaked passwords. Only the first five characters of the password's SHA-1 hash are sent, and if the service cannot be reached the check is skipped (`PASSWORD_BREACH_CHECK`).
+- Two-step sign-in (authenticator app, RFC 6238 TOTP) is required for Ministry administrators and officers and optional for everyone else. After a correct password, sign-in needs a 6-digit code (or a one-time recovery code); each code works once, a wrong code counts towards the account lock, and the step between password and code expires after 5 minutes and 5 tries. Authenticator secrets are encrypted with `MFA_ENCRYPTION_KEY` (AES-256-GCM). A Ministry administrator can reset someone who loses their phone; nobody can reset their own.
 - Users with a temporary password can do nothing except change it.
 - Configuration is in `.env.example`. In production use HTTPS, a `JWT_PRIVATE_KEY` made for that environment and kept secret, `COOKIE_SECURE=true` and `TRUST_PROXY` if behind a load balancer.
 - Never commit real personal data, including in tests and fixtures. This service will hold records about children; design for the Nigeria Data Protection Act 2023.

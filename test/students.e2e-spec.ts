@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient, Role } from '@prisma/client';
 import request from 'supertest';
+import { completeTwoStep } from './helpers/two-step';
 import { AppModule } from '../src/app.module';
 import { hashPassword } from '../src/common/password';
 import { setupApp } from '../src/setup-app';
@@ -26,7 +27,7 @@ describe('Students and classes (e2e)', () => {
       .set('Authorization', `Bearer ${first.body.accessToken}`)
       .send({ currentPassword: temp, newPassword: 'steady-maple-road-26' })
       .expect(200);
-    return r.body.accessToken as string;
+    return completeTwoStep(http, r);
   }
 
   let ministry: ReturnType<typeof as>;

@@ -86,6 +86,13 @@ model User {
   lockedUntil        DateTime?
   lastLoginAt        DateTime?
   passwordChangedAt  DateTime?
+  /// Two-step sign-in: the authenticator-app secret, encrypted with MFA_ENCRYPTION_KEY. Set once confirmed.
+  totpSecret         String?
+  /// A secret shown during set-up and not yet confirmed with a code.
+  totpPendingSecret  String?
+  totpEnabledAt      DateTime?
+  /// The last 30-second step a code was accepted for, so the same code cannot be used twice.
+  totpLastStep       Int?
   createdById        String?              @db.Uuid
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
@@ -102,6 +109,8 @@ model User {
   inspections        Inspection[]
   notifications      Notification[]
   devices            DeviceToken[]
+  recoveryCodes      RecoveryCode[]
+  mfaChallenges      MfaChallenge[]
 
   @@index([role])
   @@index([schoolId])
@@ -115,9 +124,37 @@ model RefreshToken {
   expiresAt  DateTime
   revokedAt  DateTime?
   replacedBy String?   @db.Uuid
+  /// The sign-in that started this session passed two-step sign-in. Carried across refreshes.
+  mfa        Boolean   @default(false)
   userAgent  String?
   ip         String?
   createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// One-time recovery codes for two-step sign-in, stored only as SHA-256 hashes.
+model RecoveryCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// The step between a correct password and the authenticator code. Short-lived, single use, limited attempts.
+model MfaChallenge {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }

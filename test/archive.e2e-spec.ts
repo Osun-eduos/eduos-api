@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient, Role } from '@prisma/client';
 import request from 'supertest';
+import { completeTwoStep } from './helpers/two-step';
 import { AppModule } from '../src/app.module';
 import { hashPassword } from '../src/common/password';
 import { setupApp } from '../src/setup-app';
@@ -19,7 +20,7 @@ describe('Archive of past sessions (e2e)', () => {
   async function activate(identifier: string, temp: string) {
     const first = await http().post('/auth/login').send({ identifier, password: temp }).expect(200);
     const r = await http().post('/auth/change-password').set('Authorization', `Bearer ${first.body.accessToken}`).send({ currentPassword: temp, newPassword: 'steady-maple-road-26' }).expect(200);
-    return r.body.accessToken as string;
+    return completeTwoStep(http, r);
   }
   const d = (s: string) => new Date(s + 'T00:00:00Z');
   let school: ReturnType<typeof as>;
