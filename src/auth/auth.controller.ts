@@ -3,10 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthUser } from '../common/auth-user';
-import { AllowPendingPassword, CurrentUser, Public } from '../common/decorators';
+import { AllowPendingPassword, AllowPendingTwoStep, CurrentUser, Public } from '../common/decorators';
 import { requestMeta } from '../common/request-meta';
 import { AuthService } from './auth.service';
-import { ChangePasswordDto, LoginDto } from './dto/auth.dto';
+import { ChangePasswordDto, LoginCodeDto, LoginDto, TwoStepCodeDto, TwoStepOffDto } from './dto/auth.dto';
 
 export const REFRESH_COOKIE = 'eduos_rt';
 
@@ -51,7 +51,18 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    return this.reply(req, res, await this.auth.login(dto.identifier, dto.password, requestMeta(req)));
+    const r = await this.auth.login(dto.identifier, dto.password, requestMeta(req));
+    // Two-step sign-in: no session yet, just a challenge to answer with the authenticator code.
+    if ('mfaRequired' in r) return r;
+    return this.reply(req, res, r);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: loginLimit, ttl: 60_000 } })
+  @Post('login/code')
+  @HttpCode(200)
+  async loginCode(@Body() dto: LoginCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.reply(req, res, await this.auth.loginCode(dto.mfaToken, dto.code, requestMeta(req)));
   }
 
   @Public()
@@ -71,6 +82,7 @@ export class AuthController {
   }
 
   @AllowPendingPassword()
+  @AllowPendingTwoStep()
   @Throttle({ default: { limit: loginLimit, ttl: 60_000 } })
   @Post('change-password')
   @HttpCode(200)
@@ -80,12 +92,51 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.reply(req, res, await this.auth.changePassword(me.id, dto.currentPassword, dto.newPassword, requestMeta(req)));
+    return this.reply(req, res, await this.auth.changePassword(me.id, dto.currentPassword, dto.newPassword, requestMeta(req), me.twoStepVerified));
   }
 
   @AllowPendingPassword()
+  @AllowPendingTwoStep()
   @Get('me')
   me(@CurrentUser() me: AuthUser) {
     return this.auth.me(me.id);
+  }
+
+  // ---- Two-step sign-in for the signed-in person ----
+
+  @AllowPendingTwoStep()
+  @Get('two-step')
+  twoStepStatus(@CurrentUser() me: AuthUser) {
+    return this.auth.twoStepStatus(me.id);
+  }
+
+  @AllowPendingTwoStep()
+  @Post('two-step/setup')
+  @HttpCode(200)
+  twoStepBegin(@CurrentUser() me: AuthUser) {
+    return this.auth.twoStepBegin(me.id);
+  }
+
+  @AllowPendingTwoStep()
+  @Throttle({ default: { limit: loginLimit, ttl: 60_000 } })
+  @Post('two-step/confirm')
+  @HttpCode(200)
+  async twoStepConfirm(@CurrentUser() me: AuthUser, @Body() dto: TwoStepCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const r = await this.auth.twoStepConfirm(me.id, dto.code, requestMeta(req));
+    return { ...this.reply(req, res, r), recoveryCodes: r.recoveryCodes };
+  }
+
+  @Throttle({ default: { limit: loginLimit, ttl: 60_000 } })
+  @Post('two-step/disable')
+  @HttpCode(200)
+  async twoStepDisable(@CurrentUser() me: AuthUser, @Body() dto: TwoStepOffDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.reply(req, res, await this.auth.twoStepDisable(me.id, dto.password, dto.code, requestMeta(req)));
+  }
+
+  @Throttle({ default: { limit: loginLimit, ttl: 60_000 } })
+  @Post('two-step/recovery-codes')
+  @HttpCode(200)
+  twoStepRecoveryCodes(@CurrentUser() me: AuthUser, @Body() dto: TwoStepCodeDto, @Req() req: Request) {
+    return this.auth.twoStepRecoveryCodes(me.id, dto.code, requestMeta(req));
   }
 }

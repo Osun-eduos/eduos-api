@@ -36,6 +36,9 @@ services:
       # ES256 private key from `npm run keys`. Render cannot generate key pairs, so paste it in the dashboard.
       - key: JWT_PRIVATE_KEY
         sync: false
+      # Encrypts two-step sign-in secrets: a random 256-bit value made by Render. Never change it once set.
+      - key: MFA_ENCRYPTION_KEY
+        generateValue: true
       - key: WEB_ORIGIN
         value: https://osun-eduos-app.pages.dev
       - key: COOKIE_SECURE

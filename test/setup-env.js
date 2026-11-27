@@ -11,3 +11,4 @@ if (!process.env.JWT_PRIVATE_KEY) {
   const { generateKeyPairSync } = require('crypto');
   process.env.JWT_PRIVATE_KEY = generateKeyPairSync('ec', { namedCurve: 'P-256', privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } }).privateKey;
 }
+process.env.MFA_ENCRYPTION_KEY ??= require('crypto').randomBytes(32).toString('base64');

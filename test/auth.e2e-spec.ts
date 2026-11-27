@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient, Role } from '@prisma/client';
 import request from 'supertest';
+import { completeTwoStep } from './helpers/two-step';
 import { AppModule } from '../src/app.module';
 import { createHmac, generateKeyPairSync, sign } from 'crypto';
 import { loadSigningKeys } from '../src/common/jwt-keys';
@@ -37,7 +38,7 @@ describe('Accounts and sign-in (e2e)', () => {
       .send({ currentPassword: temp, newPassword: permanent })
       .expect(200);
     expect(changed.body.user.mustChangePassword).toBe(false);
-    return changed.body.accessToken as string;
+    return completeTwoStep(http, changed);
   }
 
   let ministry: string;
